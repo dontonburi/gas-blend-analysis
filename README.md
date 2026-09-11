@@ -32,6 +32,9 @@ A small website for recording production runs, meter readings, and gas weight ch
 ### 3. Supabase → allow the site
 **Authentication → URL Configuration → Site URL**: set it to your GitHub Pages address. Not strictly required for password sign-in, but keeps things tidy.
 
+## Running without a password
+Set `REQUIRE_LOGIN: false` in `config.js` and run `supabase/allow_anon.sql` in the Supabase SQL Editor. Anyone with the link can then read and edit the data. To lock it again, set `REQUIRE_LOGIN: true` and re-run `schema.sql`.
+
 ## Using it
 
 - **Production runs** — date, shift, item (optional), cases. Several items in one shift are fine; add a row per item.

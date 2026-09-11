@@ -51,6 +51,7 @@ function localDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).pa
 /* ---------- auth ---------- */
 async function boot() {
   if (!sb) return;
+  if (CONFIG.REQUIRE_LOGIN === false) { $("#signout").classList.add("hidden"); showApp(); return; }
   try {
     const { data: { session } } = await sb.auth.getSession();
     if (session) showApp(); else showSignin();
