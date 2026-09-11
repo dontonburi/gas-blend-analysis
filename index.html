@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C Line gas log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="signin" class="signin hidden">
+  <form id="signin-form" class="signin-card">
+    <h1>C Line gas log</h1>
+    <p>Sign in to record runs and view consumption.</p>
+    <label>Email <input type="email" id="email" autocomplete="username" required></label>
+    <label>Password <input type="password" id="password" autocomplete="current-password" required></label>
+    <button type="submit" class="primary">Sign in</button>
+    <p id="signin-error" class="error"></p>
+  </form>
+</div>
+
+<div id="app" class="app hidden">
+  <nav class="rail">
+    <div class="brand">C Line<br>gas log</div>
+    <a href="#dashboard" data-page="dashboard" class="active">Dashboard</a>
+    <a href="#runs" data-page="runs">Production runs</a>
+    <a href="#readings" data-page="readings">Meter readings</a>
+    <a href="#checks" data-page="checks">Gas weight checks</a>
+    <a href="#items" data-page="items">Items</a>
+    <a href="#settings" data-page="settings">Settings</a>
+    <button id="signout" class="link">Sign out</button>
+  </nav>
+
+  <main>
+    <!-- DASHBOARD -->
+    <section id="page-dashboard" class="page">
+      <header class="page-head">
+        <h1>Consumption vs. production</h1>
+        <div class="range">
+          <label>From <input type="date" id="dash-from"></label>
+          <label>To <input type="date" id="dash-to"></label>
+          <button id="dash-refresh">Update</button>
+          <button id="dash-export" class="secondary">Export CSV</button>
+        </div>
+      </header>
+      <p class="lede" id="dash-summary"></p>
+      <div class="chart-wrap"><canvas id="chart-waste"></canvas></div>
+      <table id="dash-table" class="data">
+        <thead><tr>
+          <th>Date</th><th>Shift</th><th class="num">Cases</th><th class="num">Cans</th>
+          <th class="num">N₂O lb</th><th class="num">N₂ lb</th><th class="num">Total lb</th>
+          <th class="num">N₂O % vol</th><th class="num">Target lb</th><th class="num">g / can</th>
+          <th class="num">Waste factor</th><th class="num">Waste %</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="hint">Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
+    </section>
+
+    <!-- RUNS -->
+    <section id="page-runs" class="page hidden">
+      <header class="page-head"><h1>Production runs</h1><button id="runs-export" class="secondary">Export CSV</button></header>
+      <form id="run-form" class="entry">
+        <label>Date <input type="date" name="run_date" required></label>
+        <label>Shift
+          <select name="shift" required>
+            <option value="1">1 (07–15)</option><option value="2">2 (15–23)</option><option value="3">3 (23–07)</option>
+          </select>
+        </label>
+        <label>Item <select name="item_code" id="run-item"><option value="">— not recorded —</option></select></label>
+        <label>Cases <input type="number" name="cases" min="0" required></label>
+        <label>Cans / case <input type="number" name="cans_per_case" min="1" value="12" required></label>
+        <label class="wide">Notes <input type="text" name="notes"></label>
+        <button type="submit" class="primary">Save run</button>
+      </form>
+      <table id="runs-table" class="data">
+        <thead><tr><th>Date</th><th>Shift</th><th>Item</th><th class="num">Cases</th><th class="num">Cans/case</th><th>Notes</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- READINGS -->
+    <section id="page-readings" class="page hidden">
+      <header class="page-head"><h1>Meter readings</h1><button id="readings-export" class="secondary">Export CSV</button></header>
+      <p class="lede">Paste the meter export here — three columns: timestamp, N₂O totalizer scf, N₂ totalizer scf. Tab, comma, or semicolon separated; a header row is fine. Existing timestamps are skipped.</p>
+      <form id="readings-form" class="entry">
+        <textarea name="paste" rows="8" placeholder="2026-09-03 07:00:00	832658	358831"></textarea>
+        <button type="submit" class="primary">Import readings</button>
+        <span id="readings-status"></span>
+      </form>
+      <h2>Coverage</h2>
+      <table id="readings-table" class="data">
+        <thead><tr><th>Day</th><th>First reading</th><th>Last reading</th><th class="num">Points</th><th class="num">N₂O scf used</th><th class="num">N₂ scf used</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- CHECKS -->
+    <section id="page-checks" class="page hidden">
+      <header class="page-head"><h1>Gas weight checks</h1><button id="checks-export" class="secondary">Export CSV</button></header>
+      <p class="lede">One row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before/after if you leave it blank.</p>
+      <form id="check-form" class="entry">
+        <label>Date <input type="date" name="check_date" required></label>
+        <label>Gasser <input type="number" name="gasser" min="1" max="9" required></label>
+        <label>Time <input type="text" name="check_time" placeholder="07:20"></label>
+        <label>Initials <input type="text" name="initials"></label>
+        <label>Operator <input type="text" name="operator"></label>
+        <label>Can size <input type="text" name="can_size" value="18 oz"></label>
+        <label>Head <input type="number" name="head" min="1" max="18" required></label>
+        <label>Before g <input type="number" step="0.1" name="before_g"></label>
+        <label>After g <input type="number" step="0.1" name="after_g"></label>
+        <label>Weight g <input type="number" step="0.1" name="weight_g"></label>
+        <label>Correction g <input type="number" step="0.1" name="correction_g"></label>
+        <button type="submit" class="primary">Save head</button>
+      </form>
+      <div class="stats" id="checks-stats"></div>
+      <table id="checks-table" class="data">
+        <thead><tr><th>Date</th><th>Gasser</th><th>Time</th><th>Initials</th><th class="num">Head</th><th class="num">Before</th><th class="num">After</th><th class="num">Weight</th><th class="num">Corr.</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ITEMS -->
+    <section id="page-items" class="page hidden">
+      <header class="page-head"><h1>Items</h1><button id="items-export" class="secondary">Export CSV</button></header>
+      <p class="lede">Ratio and target fill are per item. Leave them blank to use the defaults from Settings.</p>
+      <form id="item-form" class="entry">
+        <label>Code <input type="text" name="code" required></label>
+        <label>Family <input type="text" name="family"></label>
+        <label>Description <input type="text" name="description"></label>
+        <label>Can size oz <input type="number" step="0.1" name="can_size_oz"></label>
+        <label>N₂O ratio by volume <input type="number" step="0.001" min="0" max="1" name="n2o_ratio_vol" placeholder="e.g. 0.85"></label>
+        <label>Target gas g/can <input type="number" step="0.01" name="target_gas_g"></label>
+        <button type="submit" class="primary">Save item</button>
+      </form>
+      <table id="items-table" class="data">
+        <thead><tr><th>Code</th><th>Family</th><th>Description</th><th class="num">Can oz</th><th class="num">N₂O ratio</th><th class="num">Target g</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="page-settings" class="page hidden">
+      <header class="page-head"><h1>Settings</h1></header>
+      <form id="settings-form" class="entry"></form>
+    </section>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
