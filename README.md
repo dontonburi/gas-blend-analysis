@@ -20,6 +20,7 @@ A small website for recording production runs, meter readings, and gas weight ch
 4. **Authentication → Users → Add user → Create new user.** Enter your email and a password, tick *Auto Confirm User*. This is your login for the site.
 5. **Authentication → Sign In / Providers → Email**: turn **off** "Allow new users to sign up" so nobody else can create an account.
 6. **Project Settings → API**: copy the **Project URL** and the **anon public** key.
+7. Note the email you used for the user — it goes in `config.js` as `LOGIN_EMAIL`. The site asks only for the password.
 
 ### 2. The site
 1. Copy `config.example.js` to `config.js` and paste in the URL and anon key.

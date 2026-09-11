@@ -1,7 +1,14 @@
 /* C Line gas log — app logic. Talks directly to Supabase; no build step. */
 
-const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const $ = (s) => document.querySelector(s);
+let sb;
+try {
+  if (typeof CONFIG === "undefined") throw new Error("config.js is missing or failed to load.");
+  if (typeof supabase === "undefined") throw new Error("Supabase library did not load (check internet / ad blocker).");
+  sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+} catch (err) {
+  document.addEventListener("DOMContentLoaded", () => { $("#signin-error").textContent = err.message; });
+}
 const $$ = (s) => [...document.querySelectorAll(s)];
 const G_PER_LB = 453.592;
 const SHIFT_START = { 1: 7, 2: 15, 3: 23 };   // hour of day, local time
@@ -43,9 +50,12 @@ function localDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).pa
 
 /* ---------- auth ---------- */
 async function boot() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (session) showApp(); else showSignin();
-  sb.auth.onAuthStateChange((_e, s) => s ? showApp() : showSignin());
+  if (!sb) return;
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) showApp(); else showSignin();
+    sb.auth.onAuthStateChange((_e, s) => s ? showApp() : showSignin());
+  } catch (err) { $("#signin-error").textContent = "Could not start: " + err.message; }
 }
 function showSignin() { $("#signin").classList.remove("hidden"); $("#app").classList.add("hidden"); }
 async function showApp() {
@@ -55,8 +65,11 @@ async function showApp() {
 }
 $("#signin-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const { error } = await sb.auth.signInWithPassword({ email: $("#email").value, password: $("#password").value });
-  $("#signin-error").textContent = error ? error.message : "";
+  if (!sb) return;
+  if (!CONFIG.LOGIN_EMAIL) { $("#signin-error").textContent = "LOGIN_EMAIL is not set in config.js."; return; }
+  const { error } = await sb.auth.signInWithPassword({ email: CONFIG.LOGIN_EMAIL, password: $("#password").value });
+  $("#signin-error").textContent = error ? (error.message === "Invalid login credentials" ? "Wrong password, or the user hasn't been created in Supabase yet." : error.message) : "";
+  if (!error) $("#password").value = "";
 });
 $("#signout").addEventListener("click", () => sb.auth.signOut());
 
