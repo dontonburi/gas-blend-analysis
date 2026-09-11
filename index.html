@@ -14,7 +14,7 @@
   <form id="signin-form" class="signin-card">
     <h1>C Line gas log</h1>
     <p>Enter the password to continue.</p>
-    <label>Password <input type="password" id="password" autocomplete="current-password" required autofocus></label>
+    <label>Password <input type="password" id="password" autocomplete="off" required autofocus></label>
     <button type="submit" class="primary">Open</button>
     <p id="signin-error" class="error"></p>
   </form>
@@ -28,7 +28,7 @@
     <a href="#readings" data-page="readings">Meter readings</a>
     <a href="#checks" data-page="checks">Gas weight checks</a>
     <a href="#items" data-page="items">Items</a>
-    <a href="#settings" data-page="settings">Settings</a>
+    <a href="#convert" data-page="convert">Conversions</a>
     <button id="signout" class="link">Sign out</button>
   </nav>
 
@@ -89,9 +89,9 @@
         <button type="submit" class="primary">Import readings</button>
         <span id="readings-status"></span>
       </form>
-      <h2>Coverage</h2>
+      <h2>By shift</h2>
       <table id="readings-table" class="data">
-        <thead><tr><th>Day</th><th>First reading</th><th>Last reading</th><th class="num">Points</th><th class="num">N₂O scf used</th><th class="num">N₂ scf used</th></tr></thead>
+        <thead><tr><th>Date</th><th>Shift</th><th>Coverage</th><th class="num">Points</th><th class="num">N₂O scf</th><th class="num">N₂ scf</th><th class="num">N₂O lb</th><th class="num">N₂ lb</th><th>Ratio (by volume)</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -99,7 +99,7 @@
     <!-- CHECKS -->
     <section id="page-checks" class="page hidden">
       <header class="page-head"><h1>Gas weight checks</h1><button id="checks-export" class="secondary">Export CSV</button></header>
-      <p class="lede">One row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before/after if you leave it blank.</p>
+      <p class="lede">Enter one row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before/after if you leave it blank. Export gives the whole table.</p>
       <form id="check-form" class="entry">
         <label>Date <input type="date" name="check_date" required></label>
         <label>Gasser <input type="number" name="gasser" min="1" max="9" required></label>
@@ -115,19 +115,16 @@
         <button type="submit" class="primary">Save head</button>
       </form>
       <div class="stats" id="checks-stats"></div>
-      <table id="checks-table" class="data">
-        <thead><tr><th>Date</th><th>Gasser</th><th>Time</th><th>Initials</th><th class="num">Head</th><th class="num">Before</th><th class="num">After</th><th class="num">Weight</th><th class="num">Corr.</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <p class="hint">Individual readings aren't listed here — use Export CSV to get the full table.</p>
     </section>
 
     <!-- ITEMS -->
     <section id="page-items" class="page hidden">
       <header class="page-head"><h1>Items</h1><button id="items-export" class="secondary">Export CSV</button></header>
-      <p class="lede">Ratio and target fill are per item. Leave them blank to use the defaults from Settings.</p>
+      <p class="lede">Ratio and target fill are per item. Leave them blank to use the defaults (85% N₂O by volume, 4.87 g per can).</p>
       <form id="item-form" class="entry">
         <label>Code <input type="text" name="code" required></label>
-        <label>Family <input type="text" name="family"></label>
+        <label>Brand <input type="text" name="brand"></label>
         <label>Description <input type="text" name="description"></label>
         <label>Can size oz <input type="number" step="0.1" name="can_size_oz"></label>
         <label>N₂O ratio by volume <input type="number" step="0.001" min="0" max="1" name="n2o_ratio_vol" placeholder="e.g. 0.85"></label>
@@ -135,15 +132,40 @@
         <button type="submit" class="primary">Save item</button>
       </form>
       <table id="items-table" class="data">
-        <thead><tr><th>Code</th><th>Family</th><th>Description</th><th class="num">Can oz</th><th class="num">N₂O ratio</th><th class="num">Target g</th><th></th></tr></thead>
+        <thead><tr><th>Code</th><th>Brand</th><th>Description</th><th class="num">Can oz</th><th class="num">N₂O ratio</th><th class="num">Target g</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
 
-    <!-- SETTINGS -->
-    <section id="page-settings" class="page hidden">
-      <header class="page-head"><h1>Settings</h1></header>
-      <form id="settings-form" class="entry"></form>
+    <!-- CONVERSIONS -->
+    <section id="page-convert" class="page hidden">
+      <header class="page-head"><h1>Conversions</h1></header>
+      <p class="lede">The meter reports standard cubic feet (scf) — a mass measurement expressed as the volume the gas would occupy at 60°F and 14.7 psia. These are the factors the dashboard uses.</p>
+      <table class="data facts">
+        <thead><tr><th>Gas</th><th class="num">lb per scf</th><th class="num">g per scf</th><th class="num">scf per lb</th><th class="num">scf per kg</th></tr></thead>
+        <tbody>
+          <tr><td class="n2o">N₂O (nitrous oxide, 44.01 g/mol)</td><td class="num">0.1160</td><td class="num">52.6</td><td class="num">8.62</td><td class="num">19.0</td></tr>
+          <tr><td class="n2">N₂ (nitrogen, 28.01 g/mol)</td><td class="num">0.0739</td><td class="num">33.5</td><td class="num">13.5</td><td class="num">29.8</td></tr>
+        </tbody>
+      </table>
+      <p class="hint">A ratio of scf between the two gases is a ratio by volume (moles). Because N₂O is heavier, 85% N₂O by volume is 89.9% by mass; 63.2% by volume is 72.9% by mass.</p>
+
+      <h2>Calculator</h2>
+      <form id="conv-form" class="entry" onsubmit="return false">
+        <label>Gas
+          <select name="gas"><option value="n2o">N₂O</option><option value="n2">N₂</option><option value="blend">Blend</option></select>
+        </label>
+        <label>N₂O % by volume (blend only) <input type="number" name="ratio" step="0.1" min="0" max="100" value="85"></label>
+        <label>Amount <input type="number" name="amount" step="any" value="1000"></label>
+        <label>Unit
+          <select name="unit"><option value="scf">scf</option><option value="lb">lb</option><option value="g">g</option><option value="kg">kg</option></select>
+        </label>
+      </form>
+      <table class="data" id="conv-out">
+        <thead><tr><th></th><th class="num">scf</th><th class="num">lb</th><th class="num">g</th><th class="num">kg</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="hint">For a blend, the scf you enter is total scf; the split into N₂O and N₂ uses the ratio above. Per-can numbers: g ÷ cans. Example — 4.87 g per can at 85% N₂O by volume is 4.38 g N₂O + 0.49 g N₂.</p>
     </section>
   </main>
 </div>

@@ -32,8 +32,8 @@ A small website for recording production runs, meter readings, and gas weight ch
 ### 3. Supabase → allow the site
 **Authentication → URL Configuration → Site URL**: set it to your GitHub Pages address. Not strictly required for password sign-in, but keeps things tidy.
 
-## Running without a password
-Set `REQUIRE_LOGIN: false` in `config.js` and run `supabase/allow_anon.sql` in the Supabase SQL Editor. Anyone with the link can then read and edit the data. To lock it again, set `REQUIRE_LOGIN: true` and re-run `schema.sql`.
+## Password
+The site asks for a password before showing anything. This is a simple front-door check in the browser; the database itself is open to the site (`supabase/allow_anon.sql`), so treat the password as a courtesy lock rather than real security.
 
 ## Using it
 
@@ -45,7 +45,7 @@ Set `REQUIRE_LOGIN: false` in `config.js` and run `supabase/allow_anon.sql` in t
 - **Export CSV** on every page. You can also export any table from Supabase → Table Editor, or take a full database backup from Supabase → Database → Backups.
 
 ## Changing the maths
-Densities, default ratio, default target fill and cans/case live in **Settings** on the site (the `settings` table). Shift start hours are at the top of `app.js` (`SHIFT_START`).
+Densities, default ratio and default target fill are constants at the top of `app.js` (`D`, `DEFAULT_RATIO_VOL`, `DEFAULT_TARGET_G`), as are shift start hours (`SHIFT_START`). The site password is stored as a SHA-256 hash (`PASSWORD_HASH`); to change it, hash the new password and replace that value.
 
 ## Timezone note
 Meter timestamps are stored with the timezone they were entered in and shifts are calculated in the browser's local time. Keep using the site from the plant's timezone (Eastern) and everything lines up.

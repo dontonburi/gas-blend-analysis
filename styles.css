@@ -98,3 +98,5 @@ table.data td.empty { color: var(--ink-2); font-style: italic; }
 @media (prefers-reduced-motion: no-preference) {
   .toast { transition: opacity 0.2s; }
 }
+
+table.facts { margin: 0.6rem 0 0.4rem; }
