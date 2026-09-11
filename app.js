@@ -242,7 +242,9 @@ async function loadDashboard() {
   const out = [];
   Object.values(groups).sort((a, b) => a.date.localeCompare(b.date) || a.shift - b.shift).forEach(g => {
     const [s, e] = shiftWindow(g.date, g.shift);
-    const a = interp(readings, s), b = interp(readings, e);
+    const last = readings.length ? readings[readings.length - 1].t : 0;
+    const eUse = (e > last && e - last <= 15 * 60e3) ? last : e;   // accept an export that stops within 15 min of shift end
+    const a = interp(readings, s), b = interp(readings, eUse);
     let cans = 0, targetLb = 0;
     g.runs.forEach(r => {
       const it = items.find(i => i.code === r.item_code) || {};
