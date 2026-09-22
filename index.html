@@ -12,6 +12,7 @@
 
 <div id="signin" class="signin">
   <form id="signin-form" class="signin-card">
+    <img class="signin-logo" id="logo-img-signin" alt="Alamance Foods" onerror="this.remove()">
     <h1>Gas Blend Runs</h1>
     <p>Enter the password to continue.</p>
     <label>Password <input type="password" id="password" autocomplete="off" required autofocus></label>
@@ -21,16 +22,23 @@
 </div>
 
 <div id="app" class="app hidden">
-  <nav class="rail">
-    <div class="brand">Gas Blend<br>Runs</div>
-    <a href="#dashboard" data-page="dashboard" class="active">Dashboard</a>
-    <a href="#runs" data-page="runs">Production runs</a>
-    <a href="#readings" data-page="readings">Meter readings</a>
-    <a href="#checks" data-page="checks">Gas weight checks</a>
-    <a href="#items" data-page="items">Items</a>
-    <a href="#convert" data-page="convert">Conversions</a>
-    <button id="signout" class="link">Sign out</button>
-  </nav>
+  <header class="site-header">
+    <div class="container">
+      <a class="site-logo" href="#dashboard" aria-label="Alamance Foods — Gas Blend Runs">
+        <img id="logo-img" alt="Alamance Foods" onerror="this.remove()">
+        <span class="wordmark">Gas Blend Runs</span>
+      </a>
+      <nav class="site-nav">
+        <a href="#dashboard" data-page="dashboard" class="active">Dashboard</a>
+        <a href="#runs" data-page="runs">Production runs</a>
+        <a href="#readings" data-page="readings">Meter readings</a>
+        <a href="#checks" data-page="checks">Gas weight checks</a>
+        <a href="#items" data-page="items">Items</a>
+        <a href="#convert" data-page="convert">Conversions</a>
+      </nav>
+      <button id="signout" class="secondary small">Sign out</button>
+    </div>
+  </header>
 
   <main>
     <!-- DASHBOARD -->

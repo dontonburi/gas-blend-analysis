@@ -61,6 +61,9 @@ async function showApp() {
   await loadItems();
   navigate(location.hash.replace("#", "") || "dashboard");
 }
+const LOGO = (typeof CONFIG !== "undefined" && CONFIG.LOGO_URL) || "https://www.alamancefoods.com/wp-content/uploads/2026/09/cropped-alamance-favicon-new-270x270.png";
+document.addEventListener("DOMContentLoaded", () => { $$("#logo-img, #logo-img-signin").forEach(i => i.src = LOGO); });
+window.addEventListener("scroll", () => document.body.classList.toggle("scrolled", window.scrollY > 10), { passive: true });
 async function boot() {
   if (!sb) return;
   if (sessionStorage.getItem("gaslog-ok") === "1") showApp(); else showSignin();
@@ -78,7 +81,8 @@ function navigate(page) {
   if (!loaders[page]) page = "dashboard";
   $$(".page").forEach(p => p.classList.add("hidden"));
   $(`#page-${page}`).classList.remove("hidden");
-  $$(".rail a").forEach(a => a.classList.toggle("active", a.dataset.page === page));
+  $$(".site-nav a").forEach(a => a.classList.toggle("active", a.dataset.page === page));
+  const sec = $(`#page-${page}`); sec.classList.remove("enter"); void sec.offsetWidth; sec.classList.add("enter");
   loaders[page]();
 }
 window.addEventListener("hashchange", () => navigate(location.hash.replace("#", "")));
