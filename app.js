@@ -76,7 +76,7 @@ $("#signin-form").addEventListener("submit", async (e) => {
 $("#signout").addEventListener("click", () => { sessionStorage.removeItem("gaslog-ok"); showSignin(); });
 
 /* ---------- navigation ---------- */
-const loaders = { dashboard: loadDashboard, runs: loadRuns, readings: loadReadings, checks: loadChecks, items: renderItems, convert: renderConvert };
+const loaders = { analysis: loadAnalysis, dashboard: loadDashboard, runs: loadRuns, readings: loadReadings, checks: loadChecks, items: renderItems, convert: renderConvert };
 function navigate(page) {
   if (!loaders[page]) page = "dashboard";
   $$(".page").forEach(p => p.classList.add("hidden"));
@@ -292,10 +292,10 @@ function renderDashTable() {
       <tr><td class="n2">N₂</td><td class="num">${fmt(r.n2Scf)}</td><td class="num">${fmt(r.n2Lb)}</td><td class="num">${fmt(100 - r.volPct, 1)}%</td></tr>
       <tr class="total"><td>Total</td><td class="num">${fmt(r.n2oScf + r.n2Scf)}</td><td class="num">${fmt(r.totalLb)}</td><td></td></tr></tbody></table>`;
     const wasteRow = (label, tgt) => tgt ? `<tr><td>${label}</td><td class="num">${fmt(tgt)}</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb - tgt)}</td><td class="num">${r.totalLb == null ? "—" : fmt((r.totalLb - tgt) / tgt * 100) + "%"}</td><td class="num waste">${r.totalLb == null ? "—" : fmt(r.totalLb / tgt, 2) + "×"}</td></tr>` : "";
-    const wasteTable = `<table class="mini"><thead><tr><th>Basis</th><th class="num">Target lb</th><th class="num">Over target lb</th><th class="num">Waste %</th><th class="num">Factor</th></tr></thead><tbody>` +
+    const wasteTable = `<table class="mini"><thead><tr><th>Basis</th><th class="num">Target lb</th><th class="num">Over lb</th><th class="num">Waste %</th><th class="num">Factor</th></tr></thead><tbody>` +
       wasteRow(`${DEFAULT_TARGET_G} g/can`, r.targetLb) + wasteRow("BOM standard", r.bomLb) + `</tbody></table>`;
     const kv = (label, val) => `<div class="kv"><span>${label}</span><div>${val}</div></div>`;
-    det.innerHTML = `<td colspan="12"><div class="detail">
+    det.innerHTML = `<td colspan="12"><div class="run-detail">
       <div class="detail-tables">
         <section><h4>Items</h4>${itemsTable}</section>
         <div class="detail-pair">
@@ -321,12 +321,9 @@ $("#f-clear").addEventListener("click", () => { ["#f-item", "#f-wf", "#f-eff"].f
 $("#dash-table thead").addEventListener("click", (e) => { const th = e.target.closest("th[data-sort]"); if (!th) return;
   dashSort = th.dataset.sort === dashSort.key ? { key: dashSort.key, dir: -dashSort.dir } : { key: th.dataset.sort, dir: th.dataset.sort === "wf" || th.dataset.sort === "gPerCan" ? -1 : 1 }; renderDashTable(); });
 
-async function loadDashboard() {
-  const from = $("#dash-from"), to = $("#dash-to");
-  if (!from.value) { const t = new Date(); to.value = localDate(t); t.setDate(t.getDate() - 30); from.value = localDate(t); }
-  const lineSel = $("#dash-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
+async function computeShiftRows(lines, from, to) {
   const [runs, raw, fillerRaw, downRaw] = await Promise.all([
-    sb.from("production_runs").select("*").in("line", lines).gte("run_date", from.value).lte("run_date", to.value).order("run_date").order("shift").then(r => r.data || []),
+    sb.from("production_runs").select("*").in("line", lines).gte("run_date", from).lte("run_date", to).order("run_date").order("shift").then(r => r.data || []),
     fetchAll("gas_readings", "ts"),
     fetchAll("filler_readings", "ts").catch(() => []),
     fetchAll("filler_downtime", "ts").catch(() => []),
@@ -378,6 +375,14 @@ async function loadDashboard() {
     out.push(row);
   });
 
+  return out;
+}
+
+async function loadDashboard() {
+  const from = $("#dash-from"), to = $("#dash-to");
+  if (!from.value) { const t = new Date(); to.value = localDate(t); t.setDate(t.getDate() - 30); from.value = localDate(t); }
+  const lineSel = $("#dash-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
+  const out = await computeShiftRows(lines, from.value, to.value);
   dashRows = out; renderDashTable();
 
 
@@ -405,6 +410,108 @@ async function loadDashboard() {
 $("#dash-refresh").addEventListener("click", loadDashboard);
 $("#dash-line").addEventListener("change", loadDashboard);
 $("#dash-cpm").addEventListener("change", loadDashboard);
+
+
+/* ---------- analysis ---------- */
+let anChart1 = null, anChart2 = null, anChart3 = null;
+function fitLine(xs, ys) { // least squares y = m x + c
+  const n = xs.length; if (n < 2) return null;
+  const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0, sxx = 0, sst = 0; xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) ** 2; });
+  const m = sxy / sxx, c = my - m * mx; ys.forEach((y, i) => sst += (y - my) ** 2);
+  const sse = ys.reduce((acc, y, i) => acc + (y - (m * xs[i] + c)) ** 2, 0);
+  return { m, c, r2: sst ? 1 - sse / sst : 0, n };
+}
+function weekStart(dateStr) { const d = new Date(dateStr + "T00:00:00"); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return localDate(d); }
+async function loadAnalysis() {
+  const from = $("#an-from"), to = $("#an-to");
+  if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || "2026-08-01"; to.value = localDate(new Date()); }
+  const lineSel = $("#an-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
+  const all = (await computeShiftRows(lines, from.value, to.value)).filter(r => r.totalLb != null);
+  // item filter options
+  const itemSel = $("#an-item"); const cur = itemSel.value;
+  const codes = [...new Set(all.flatMap(r => r.itemRows.map(x => x.code)))].sort();
+  itemSel.innerHTML = `<option value="">All items</option>` + codes.map(c => `<option value="${c}"${c === cur ? " selected" : ""}>${c}</option>`).join("");
+  const rows = cur ? all.filter(r => r.itemRows.some(x => x.code === cur)) : all;
+  const full = rows.filter(r => r.hours >= 7.5);
+  $("#an-count").textContent = `${rows.length} shifts, ${from.value} to ${to.value}`;
+
+  // ----- by line -----
+  const byLine = lines.map(L => {
+    const g = rows.filter(r => r.line === L); if (!g.length) return null;
+    const T = g.reduce((a, r) => ({ lb: a.lb + r.totalLb, tgt: a.tgt + r.targetLb, bom: a.bom + r.bomLb, cans: a.cans + r.cans, cases: a.cases + r.cases, hrs: a.hrs + r.hours }), { lb: 0, tgt: 0, bom: 0, cans: 0, cases: 0, hrs: 0 });
+    const f = g.filter(r => r.hours >= 7.5); const fit = fitLine(f.map(r => r.casesHr), f.map(r => r.lbHr));
+    const effs = g.map(r => r.eff).filter(x => x != null);
+    return { line: L, shifts: g.length, cases: T.cases, cans: T.cans, lb: T.lb, wf: T.lb / T.tgt, wfBom: T.bom ? T.lb / T.bom : null, gcan: T.lb * G_PER_LB / T.cans, lbHr: T.lb / T.hrs, eff: effs.length ? effs.reduce((a, b) => a + b, 0) / effs.length : null, fit,
+      medianWf: [...g].sort((a, b) => a.wf - b.wf)[Math.floor(g.length / 2)].wf, best: Math.min(...g.map(r => r.wf)), worst: Math.max(...g.map(r => r.wf)) };
+  }).filter(Boolean);
+  $("#an-lines").innerHTML = byLine.map(L => `<div class="kpi" data-line="${L.line}">
+      <h3>${L.line} Line</h3>
+      <div class="big">${L.wf.toFixed(2)}×<small>waste factor</small></div>
+      <dl>
+        <dt>Gas per can</dt><dd>${fmt(L.gcan, 1)} g <small>vs ${DEFAULT_TARGET_G} g target</small></dd>
+        <dt>Shifts · cases</dt><dd>${fmt(L.shifts)} · ${fmt(L.cases)}</dd>
+        <dt>Gas metered</dt><dd>${fmt(L.lb)} lb</dd>
+        <dt>vs BOM</dt><dd>${L.wfBom ? L.wfBom.toFixed(2) + "×" : "—"}</dd>
+        <dt>Efficiency</dt><dd>${L.eff == null ? "—" : fmt(L.eff) + "%"} <small>of setpoint</small></dd>
+        <dt>Range</dt><dd>${L.best.toFixed(2)}× – ${L.worst.toFixed(2)}× <small>median ${L.medianWf.toFixed(2)}×</small></dd>
+        <dt>Fixed loss</dt><dd>${L.fit ? fmt(L.fit.c) + " lb/hr" : "—"} <small>${L.fit ? "while gas is up" : "need 2+ full shifts"}</small></dd>
+        <dt>Per can</dt><dd>${L.fit ? fmt(L.fit.m * G_PER_LB / 12, 1) + " g" : "—"} <small>${L.fit ? "R² " + L.fit.r2.toFixed(2) : ""}</small></dd>
+      </dl></div>`).join("") || "<p class='hint'>No shifts in range.</p>";
+
+  // ----- by item (gas allocated by can share within mixed shifts) -----
+  const byItem = {};
+  rows.forEach(r => r.itemRows.forEach(x => {
+    const share = r.cans ? x.cans / r.cans : 0; const it = items.find(i => i.code === x.code) || {};
+    const o = byItem[x.code] = byItem[x.code] || { code: x.code, brand: x.brand, lines: new Set(), shifts: 0, mixed: 0, cases: 0, cans: 0, lb: 0, tgt: 0, bom: 0 };
+    o.lines.add(r.line); o.shifts++; if (r.itemRows.length > 1) o.mixed++;
+    o.cases += x.cases; o.cans += x.cans; o.lb += r.totalLb * share; o.tgt += x.cans * (it.target_gas_g ?? DEFAULT_TARGET_G) / G_PER_LB; o.bom += it.bom_gas_g_per_can ? x.cans * it.bom_gas_g_per_can / G_PER_LB : 0;
+  }));
+  const itemList = Object.values(byItem).sort((a, b) => b.lb - a.lb);
+  $("#an-items tbody").innerHTML = itemList.map(o => `<tr><td>${o.code}</td><td>${o.brand || "—"}</td><td>${[...o.lines].join(", ")}</td><td class="num">${o.shifts}${o.mixed ? ` <small>(${o.mixed} shared)</small>` : ""}</td><td class="num">${fmt(o.cases)}</td><td class="num">${fmt(o.cans)}</td><td class="num">${fmt(o.lb)}</td><td class="num">${fmt(o.lb * G_PER_LB / o.cans, 1)}</td><td class="num waste">${(o.lb / o.tgt).toFixed(2)}×</td><td class="num">${o.bom ? (o.lb / o.bom).toFixed(2) + "×" : "—"}</td></tr>`).join("");
+
+  // ----- trend over time: weekly by line + improvement test -----
+  const weeks = {}; rows.forEach(r => { const k = `${weekStart(r.date)}|${r.line}`; (weeks[k] = weeks[k] || { week: weekStart(r.date), line: r.line, lb: 0, tgt: 0, cans: 0, n: 0 }); weeks[k].lb += r.totalLb; weeks[k].tgt += r.targetLb; weeks[k].cans += r.cans; weeks[k].n++; });
+  const weekList = Object.values(weeks).sort((a, b) => a.week.localeCompare(b.week));
+  const weekLabels = [...new Set(weekList.map(w => w.week))];
+  $("#an-weeks tbody").innerHTML = weekList.map(w => `<tr><td class="date">${w.week}</td><td>${w.line}</td><td class="num">${w.n}</td><td class="num">${fmt(w.cans)}</td><td class="num">${fmt(w.lb)}</td><td class="num">${fmt(w.lb * G_PER_LB / w.cans, 1)}</td><td class="num waste">${(w.lb / w.tgt).toFixed(2)}×</td></tr>`).join("");
+  const trendText = lines.map(L => {
+    const g = rows.filter(r => r.line === L).sort((a, b) => a.date.localeCompare(b.date) || a.shift - b.shift); if (g.length < 4) return null;
+    const t0 = new Date(g[0].date).getTime(); const xs = g.map(r => (new Date(r.date).getTime() - t0) / 864e5); const f = fitLine(xs, g.map(r => r.gPerCan));
+    const half = Math.floor(g.length / 2); const first = g.slice(0, half), second = g.slice(half);
+    const wfOf = (arr) => arr.reduce((a, r) => a + r.totalLb, 0) / arr.reduce((a, r) => a + r.targetLb, 0);
+    const a1 = wfOf(first), a2 = wfOf(second); const delta = (a2 - a1) / a1 * 100;
+    return `<b>${L} Line</b>: first half of period ${a1.toFixed(2)}× → second half ${a2.toFixed(2)}× (${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%). Gas per can trending ${f.m * 7 >= 0 ? "up" : "down"} ${Math.abs(f.m * 7).toFixed(2)} g per week${Math.abs(f.r2) < 0.1 ? " — not a meaningful trend, shift-to-shift variation dominates" : ""}.`;
+  }).filter(Boolean).join("<br>");
+  $("#an-trend-text").innerHTML = trendText || "Need at least 4 shifts per line to test for a trend.";
+
+  // ----- start-of-run effect -----
+  const runsByLine = {}; ["C", "D"].forEach(L => { const g = all.filter(r => r.line === L).sort((a, b) => a.date.localeCompare(b.date) || a.shift - b.shift); let prev = null; g.forEach(r => { const t = new Date(r.date).getTime() + SHIFT_START[r.shift] * 3600e3; r.pos = prev != null && t - prev <= 9 * 3600e3 ? "later" : "start"; prev = t; }); });
+  const pos = { start: rows.filter(r => r.pos === "start"), later: rows.filter(r => r.pos === "later") };
+  const med = (arr) => arr.length ? [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)] : null;
+  $("#an-startup").innerHTML = `<tr><td>First shift of a run</td><td class="num">${pos.start.length}</td><td class="num waste">${med(pos.start.map(r => r.wf))?.toFixed(2) ?? "—"}×</td><td class="num">${fmt(med(pos.start.map(r => r.casesHr)))}</td><td class="num">${fmt(med(pos.start.map(r => r.eff).filter(x => x != null)))}%</td></tr>
+    <tr><td>Later shifts</td><td class="num">${pos.later.length}</td><td class="num waste">${med(pos.later.map(r => r.wf))?.toFixed(2) ?? "—"}×</td><td class="num">${fmt(med(pos.later.map(r => r.casesHr)))}</td><td class="num">${fmt(med(pos.later.map(r => r.eff).filter(x => x != null)))}%</td></tr>`;
+
+  // ----- charts -----
+  const colors = { C: "#014583", D: "#8ae5ff" }, dark = { C: "#031b27", D: "#457a94" };
+  [anChart1, anChart2, anChart3].forEach(c => c && c.destroy());
+  anChart1 = new Chart($("#an-chart-trend"), { type: "line",
+    data: { labels: weekLabels, datasets: lines.map(L => ({ label: `${L} Line weekly waste factor`, data: weekLabels.map(w => { const x = weekList.find(v => v.week === w && v.line === L); return x ? x.lb / x.tgt : null; }), borderColor: colors[L], backgroundColor: colors[L], pointRadius: 5, borderWidth: 2.5, spanGaps: true, tension: 0.25 })) },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, title: { display: true, text: "waste factor (× target)" } }, x: { title: { display: true, text: "week starting" } } } } });
+  anChart2 = new Chart($("#an-chart-fixed"), { type: "scatter",
+    data: { datasets: lines.flatMap(L => { const g = full.filter(r => r.line === L); const f = fitLine(g.map(r => r.casesHr), g.map(r => r.lbHr)); const xmax = Math.max(0, ...g.map(r => r.casesHr)) * 1.05;
+      return [{ label: `${L} Line shifts`, data: g.map(r => ({ x: r.casesHr, y: r.lbHr, r })), backgroundColor: colors[L], pointRadius: 6, pointBorderColor: dark[L] },
+        ...(f ? [{ label: `${L} fit: ${fmt(f.c)} lb/hr + ${fmt(f.m * G_PER_LB / 12, 1)} g/can`, type: "line", data: [{ x: 0, y: f.c }, { x: xmax, y: f.c + f.m * xmax }], borderColor: dark[L], borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false }] : [])]; }) },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: { callbacks: { label: (c) => c.raw.r ? `${c.raw.r.date} S${c.raw.r.shift} ${c.raw.r.items}: ${fmt(c.raw.y)} lb/hr at ${fmt(c.raw.x)} cases/hr` : c.dataset.label } } },
+      scales: { x: { beginAtZero: true, title: { display: true, text: "cases per hour" } }, y: { beginAtZero: true, title: { display: true, text: "gas lb per hour" } } } } });
+  const topItems = itemList.slice(0, 12);
+  anChart3 = new Chart($("#an-chart-items"), { type: "bar",
+    data: { labels: topItems.map(o => o.code), datasets: [{ label: "gas per can (g, allocated)", data: topItems.map(o => o.lb * G_PER_LB / o.cans), backgroundColor: topItems.map(o => [...o.lines].includes("C") && ![...o.lines].includes("D") ? colors.C : [...o.lines].includes("D") && ![...o.lines].includes("C") ? colors.D : "#457a94") }, { label: `target ${DEFAULT_TARGET_G} g`, type: "line", data: topItems.map(() => DEFAULT_TARGET_G), borderColor: "#c27a12", borderDash: [6, 4], borderWidth: 2, pointRadius: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, title: { display: true, text: "g per can" } } } } });
+  $("#an-export").onclick = () => csv(itemList.map(o => ({ item: o.code, brand: o.brand, lines: [...o.lines].join(" "), shifts: o.shifts, shared_shifts: o.mixed, cases: o.cases, cans: o.cans, gas_lb_allocated: o.lb, g_per_can: o.lb * G_PER_LB / o.cans, waste_factor: o.lb / o.tgt, waste_factor_vs_bom: o.bom ? o.lb / o.bom : null })), "analysis_by_item.csv");
+}
+["#an-line", "#an-item"].forEach(id => $(id).addEventListener("change", loadAnalysis));
+$("#an-refresh").addEventListener("click", loadAnalysis);
 
 /* ---------- conversions ---------- */
 function renderConvert() {

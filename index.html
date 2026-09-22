@@ -30,6 +30,7 @@
       </a>
       <nav class="site-nav">
         <a href="#dashboard" data-page="dashboard" class="active">Dashboard</a>
+        <a href="#analysis" data-page="analysis">Analysis</a>
         <a href="#runs" data-page="runs">Production runs</a>
         <a href="#readings" data-page="readings">Meter readings</a>
         <a href="#checks" data-page="checks">Gas weight checks</a>
@@ -73,6 +74,51 @@
         <tbody></tbody>
       </table>
       <p class="hint">Click a row for the full breakdown. Efficiency = cans produced ÷ cans the filler could make at setpoint (C 300 cpm, D 250 cpm) over the shift window. Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
+    </section>
+
+    <!-- ANALYSIS -->
+    <section id="page-analysis" class="page hidden">
+      <header class="page-head">
+        <h1>Analysis</h1>
+        <div class="range">
+          <label>Line <select id="an-line"><option value="ALL">Both</option><option value="C">C</option><option value="D">D</option></select></label>
+          <label>Item <select id="an-item"><option value="">All items</option></select></label>
+          <label>From <input type="date" id="an-from"></label>
+          <label>To <input type="date" id="an-to"></label>
+          <button id="an-refresh">Update</button>
+          <button id="an-export" class="secondary">Export items CSV</button>
+        </div>
+      </header>
+      <p class="lede" id="an-count"></p>
+
+      <h2>Performance by line</h2>
+      <div class="kpis" id="an-lines"></div>
+
+      <h2>Is it improving?</h2>
+      <p class="lede" id="an-trend-text"></p>
+      <div class="chart-wrap short"><canvas id="an-chart-trend"></canvas></div>
+      <table class="data compact" id="an-weeks">
+        <thead><tr><th>Week starting</th><th>Line</th><th class="num">Shifts</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Waste factor</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h2>Where the gas goes: fixed vs per can</h2>
+      <p class="lede">Each dot is a full shift. The dashed line is the best fit — where it meets the left axis is gas used per hour regardless of output (purge, vent, leaks, idle); its slope is gas per can actually filled.</p>
+      <div class="chart-wrap short"><canvas id="an-chart-fixed"></canvas></div>
+
+      <h2>Start-of-run effect</h2>
+      <table class="data compact">
+        <thead><tr><th>Shift position</th><th class="num">Shifts</th><th class="num">Median waste factor</th><th class="num">Median cases/hr</th><th class="num">Median efficiency</th></tr></thead>
+        <tbody id="an-startup"></tbody>
+      </table>
+
+      <h2>Performance by item</h2>
+      <p class="lede">When several items run in one shift the meter can't separate them, so that shift's gas is split between them in proportion to cans filled ("shared" shifts).</p>
+      <div class="chart-wrap short"><canvas id="an-chart-items"></canvas></div>
+      <table class="data compact" id="an-items">
+        <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Waste factor</th><th class="num">vs BOM</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </section>
 
     <!-- RUNS -->
