@@ -325,14 +325,16 @@ async function loadDashboard() {
   $("#dash-summary").innerHTML = summ.length ? summ.join("<br>") : "No shifts with both production and meter data in this range.";
 
   if (chart) chart.destroy();
-  const colors = { C: "#c27a12", D: "#2457c5" };
+  const colors = { C: "#c27a12", D: "#2457c5" }, light = { C: "rgba(194,122,18,0.35)", D: "rgba(36,87,197,0.35)" };
+  const bars = lines.map(L => ({ type: "bar", label: `${L} Line waste factor`, data: have.map(r => r.line === L ? r.wf : null), backgroundColor: colors[L], yAxisID: "y", order: 2, skipNull: true }));
+  const cpmLines = lines.map(L => ({ type: "line", label: `${L} Line avg CPM`, data: have.map(r => r.line === L ? r.avgCpm : null), borderColor: light[L], backgroundColor: light[L], pointBackgroundColor: colors[L], pointRadius: 4, borderWidth: 2, spanGaps: true, yAxisID: "y2", order: 1 }));
   chart = new Chart($("#chart-waste"), {
-    type: "bar",
-    data: { labels: have.map(r => `${r.date.slice(5)} S${r.shift}`),
-      datasets: lines.map(L => ({ label: `${L} Line`, data: have.map(r => r.line === L ? r.wf : null), backgroundColor: colors[L], skipNull: true })) },
-    options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: lines.length > 1 }, tooltip: { callbacks: { afterLabel: (c) => { const r = have[c.dataIndex]; return `${r.items} · ${fmt(r.cases)} cases${r.avgCpm == null ? "" : " · " + fmt(r.avgCpm) + " cpm"}`; } } } },
-      scales: { x: { stacked: true }, y: { beginAtZero: true, title: { display: true, text: "× target" } } } }
+    data: { labels: have.map(r => `${r.date.slice(5)} S${r.shift}`), datasets: [...bars, ...cpmLines] },
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { display: true }, tooltip: { callbacks: { afterBody: (c) => { const r = have[c[0].dataIndex]; return `${r.items} · ${fmt(r.cases)} cases`; } } } },
+      scales: { x: { stacked: true },
+        y: { beginAtZero: true, position: "left", title: { display: true, text: "waste factor (× target)" } },
+        y2: { beginAtZero: true, position: "right", grid: { drawOnChartArea: false }, title: { display: true, text: "filler cans / min" } } } }
   });
   $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, items: r.items, cases: r.cases, cans: r.cans, hours: r.hours, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, avg_cpm: r.avgCpm, pct_filler_running: r.pctRunning, target_lb: r.targetLb, bom_target_lb: r.bomLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_factor_vs_bom: r.wfBom, waste_pct: r.wastePct, notes: r.notes })), "consumption_by_shift.csv");
 }
