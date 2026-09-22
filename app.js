@@ -369,7 +369,7 @@ async function loadDashboard() {
   $("#dash-summary").innerHTML = summ.length ? summ.join("<br>") : "No shifts with both production and meter data in this range.";
 
   if (chart) chart.destroy();
-  const colors = { C: "#c27a12", D: "#2457c5" }, cpmColors = { C: "#14212b", D: "#3e8e7e" };   // CPM lines: near-black for C, teal for D
+  const colors = { C: "#014583", D: "#8ae5ff" }, cpmColors = { C: "#c27a12", D: "#031b27" };   // brand palette: C primary blue, D sky blue; CPM lines orange / navy
   const bars = lines.map(L => ({ type: "bar", label: `${L} Line waste factor`, data: have.map(r => r.line === L ? r.wf : null), backgroundColor: colors[L], yAxisID: "y", order: 2, skipNull: true }));
   const showCpm = $("#dash-cpm").checked;
   const cpmLines = showCpm ? lines.map(L => ({ type: "line", label: `${L} Line avg CPM`, data: have.map(r => r.line === L ? r.avgCpm : null), borderColor: cpmColors[L], backgroundColor: cpmColors[L], pointBackgroundColor: "#fff", pointBorderColor: cpmColors[L], pointBorderWidth: 2, pointRadius: 4, borderWidth: 2, borderDash: [6, 4], spanGaps: true, yAxisID: "y2", order: 1 })) : [];
