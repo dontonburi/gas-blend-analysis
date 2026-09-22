@@ -88,7 +88,7 @@ function renderItems() {
   const tb = $("#items-table tbody"); tb.innerHTML = "";
   items.forEach(it => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${it.code}</td><td>${it.brand || ""}</td><td>${it.description || ""}</td><td class="num">${it.cans_per_case ?? ""}</td><td class="num">${it.bom_gas_g_per_can ?? ""}</td>
+    tr.innerHTML = `<td>${it.code}</td><td>${it.brand || ""}</td><td>${it.description || ""}</td><td class="num">${it.cans_per_case ?? ""}</td><td class="num">${it.n2o_lb_per_case ?? ""}</td><td class="num">${it.n2_lb_per_case ?? ""}</td><td class="num">${it.bom_gas_g_per_can ?? ""}</td>
       <td class="num">${it.n2o_ratio_vol != null ? (it.n2o_ratio_vol * 100).toFixed(1) + "%" : "<span class='empty'>default</span>"}</td>
       <td class="num">${it.target_gas_g != null ? it.target_gas_g : "<span class='empty'>default</span>"}</td>
       <td><button class="small" data-edit="${it.code}">Edit</button> <button class="small danger" data-del="${it.code}">Delete</button></td>`;
@@ -113,7 +113,7 @@ $("#item-form").addEventListener("submit", async (e) => {
   if (error) { $("#item-error").textContent = "Could not save: " + error.message + (/brand/.test(error.message) ? " — run supabase/update_2026-09-11.sql in Supabase to add the brand column." : ""); return; }
   e.target.reset(); await loadItems(); renderItems(); toast(`Saved ${row.code}`);
 });
-$("#items-export").addEventListener("click", () => csv(items.map(i => ({ code: i.code, brand: i.brand, description: i.description, cans_per_case: i.cans_per_case, bom_gas_g_per_can: i.bom_gas_g_per_can, n2o_ratio_vol: i.n2o_ratio_vol, target_gas_g: i.target_gas_g })), "items.csv"));
+$("#items-export").addEventListener("click", () => csv(items.map(i => ({ code: i.code, brand: i.brand, description: i.description, cans_per_case: i.cans_per_case, n2o_lb_per_case: i.n2o_lb_per_case, n2_lb_per_case: i.n2_lb_per_case, bom_gas_g_per_can: i.bom_gas_g_per_can, n2o_ratio_vol: i.n2o_ratio_vol, target_gas_g: i.target_gas_g })), "items.csv"));
 
 /* ---------- production runs ---------- */
 async function loadRuns() {
