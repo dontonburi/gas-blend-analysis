@@ -286,7 +286,8 @@ function renderDashTable() {
       ${cell("Window", `${r.hours.toFixed(1)} h${r.hours < 7.9 ? " (partial meter coverage)" : ""}`)}
       ${cell("Gas metered", r.totalLb == null ? "—" : `${fmt(r.n2oScf)} scf N₂O + ${fmt(r.n2Scf)} scf N₂<br>${fmt(r.n2oLb)} lb N₂O + ${fmt(r.n2Lb)} lb N₂ = ${fmt(r.totalLb)} lb`)}
       ${cell("Rates", r.totalLb == null ? "—" : `${fmt(r.lbHr)} lb/hr gas · ${fmt(r.casesHr)} cases/hr`)}
-      ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average = ${fmt(r.eff)}% of ${FILLER_SETPOINT[r.line]} cpm setpoint<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
+      ${cell("Efficiency", `${fmt(r.cans)} cans produced ÷ ${fmt(r.capacityCans)} capacity (${FILLER_SETPOINT[r.line]} cpm × ${r.hours.toFixed(1)} h) = <b>${fmt(r.eff)}%</b>`)}
+      ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average (${fmt(r.avgCpm / FILLER_SETPOINT[r.line] * 100)}% of setpoint)<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
       ${cell("Downtime", r.pctDown == null ? "no downtime data" : `filler down ${fmt(r.pctDown)}% of shift · longest stop ${fmt(r.longestStop)} min`)}
       ${cell("Target", `${fmt(r.targetLb)} lb at ${DEFAULT_TARGET_G} g/can${r.bomLb ? `<br>${fmt(r.bomLb)} lb at BOM standard (${fmt(r.wfBom, 2)}× vs BOM)` : ""}`)}
       ${cell("Waste", r.totalLb == null ? "—" : `${fmt(r.totalLb - r.targetLb)} lb over target · ${fmt(r.wastePct)}% · ${fmt(r.wf, 2)}×`)}
@@ -339,11 +340,12 @@ async function loadDashboard() {
     const fill = (fillerBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.cpm);
     const avgCpm = fill.length ? fill.reduce((x, y) => x + y, 0) / fill.length : null;
     const pctRunning = fill.length ? fill.filter(c => c > 20).length / fill.length * 100 : null;
-    const eff = avgCpm != null ? avgCpm / FILLER_SETPOINT[g.line] * 100 : null;
+    const capacityCans = FILLER_SETPOINT[g.line] * 60 * hours;               // cans the filler could make at setpoint over the window
+    const eff = cans && hours ? cans / capacityCans * 100 : null;              // efficiency = cans produced ÷ setpoint capacity
     const dn = (downBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.m);
     const pctDown = dn.length ? dn.filter(m => m > 5).length / dn.length * 100 : null;
     const longestStop = dn.length ? Math.max(...dn) : null;
-    const row = { line: g.line, date: g.date, shift: g.shift, cases, cans, targetLb, bomLb, itemRows, hours, avgCpm, pctRunning, eff, pctDown, longestStop,
+    const row = { line: g.line, date: g.date, shift: g.shift, cases, cans, targetLb, bomLb, itemRows, hours, avgCpm, pctRunning, eff, capacityCans, pctDown, longestStop,
       items: [...new Set(itemRows.map(i => i.code))].join(" + "), fillerCans: avgCpm != null ? avgCpm * 60 * hours : null,
       notes: g.runs.map(r => r.notes).filter(Boolean).join("; ") };
     if (a && b) {
@@ -379,7 +381,7 @@ async function loadDashboard() {
         y: { beginAtZero: true, position: "left", title: { display: true, text: "waste factor (× target)" } },
         y2: { display: showCpm, beginAtZero: true, position: "right", grid: { drawOnChartArea: false }, title: { display: true, text: "filler cans / min" } } } }
   });
-  $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, items: r.items, cases: r.cases, cans: r.cans, hours: r.hours, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, avg_cpm: r.avgCpm, filler_efficiency_pct: r.eff, pct_shift_filler_down: r.pctDown, longest_stop_min: r.longestStop, target_lb: r.targetLb, bom_target_lb: r.bomLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_factor_vs_bom: r.wfBom, waste_pct: r.wastePct, notes: r.notes })), "consumption_by_shift.csv");
+  $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, items: r.items, cases: r.cases, cans: r.cans, hours: r.hours, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, avg_cpm: r.avgCpm, efficiency_pct_cans_vs_capacity: r.eff, capacity_cans: r.capacityCans, pct_shift_filler_down: r.pctDown, longest_stop_min: r.longestStop, target_lb: r.targetLb, bom_target_lb: r.bomLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_factor_vs_bom: r.wfBom, waste_pct: r.wastePct, notes: r.notes })), "consumption_by_shift.csv");
 }
 $("#dash-refresh").addEventListener("click", loadDashboard);
 $("#dash-line").addEventListener("change", loadDashboard);
