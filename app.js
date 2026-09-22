@@ -17,6 +17,7 @@ const D = { n2o: 0.116, n2: 0.0739 };            // lb per scf at 60F / 14.7 psi
 const DEFAULT_RATIO_VOL = 0.85;                   // N2O fraction by volume when item ratio is blank
 const DEFAULT_TARGET_G = 4.87;                    // g gas per can when item target is blank
 const PASSWORD_HASH = "b4b9c4c60e9dd10880a39f1825f1de018e23aea06e08b8d94aa336519d5fc088";
+const normCode = (c) => (c || "").trim().toUpperCase().replace(/^([A-Z]{2}\d+).*$/, "$1");   // AD28-T, AG45-WIP -> AD28, AG45
 let items = [];
 let chart = null;
 
@@ -87,8 +88,8 @@ function renderItems() {
   const tb = $("#items-table tbody"); tb.innerHTML = "";
   items.forEach(it => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${it.code}</td><td>${it.brand || ""}</td><td>${it.description || ""}</td>
-      <td class="num">${it.can_size_oz ?? ""}</td><td class="num">${it.n2o_ratio_vol != null ? (it.n2o_ratio_vol * 100).toFixed(1) + "%" : "<span class='empty'>default</span>"}</td>
+    tr.innerHTML = `<td>${it.code}</td><td>${it.brand || ""}</td><td>${it.description || ""}</td><td class="num">${it.cans_per_case ?? ""}</td><td class="num">${it.bom_gas_g_per_can ?? ""}</td>
+      <td class="num">${it.n2o_ratio_vol != null ? (it.n2o_ratio_vol * 100).toFixed(1) + "%" : "<span class='empty'>default</span>"}</td>
       <td class="num">${it.target_gas_g != null ? it.target_gas_g : "<span class='empty'>default</span>"}</td>
       <td><button class="small" data-edit="${it.code}">Edit</button> <button class="small danger" data-del="${it.code}">Delete</button></td>`;
     tb.appendChild(tr);
@@ -102,16 +103,17 @@ function renderItems() {
     if (error) return toast(error.message, true);
     await loadItems(); renderItems(); toast("Item deleted");
   };
-  const sel = $("#run-item"); sel.innerHTML = `<option value="">— not recorded —</option>` + items.map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}</option>`).join("");
+  const sel = $("#run-item"); sel.onchange = () => { const it = items.find(i => i.code === sel.value); if (it?.cans_per_case) $("#run-form").elements.cans_per_case.value = it.cans_per_case; }; sel.innerHTML = `<option value="">— not recorded —</option>` + items.map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}</option>`).join("");
 }
 $("#item-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const row = formData(e.target); row.code = row.code.trim().toUpperCase();
+  const row = formData(e.target); row.code = normCode(row.code);
+  $("#item-error").textContent = "";
   const { error } = await sb.from("items").upsert(row);
-  if (error) return toast(error.message, true);
+  if (error) { $("#item-error").textContent = "Could not save: " + error.message + (/brand/.test(error.message) ? " — run supabase/update_2026-09-11.sql in Supabase to add the brand column." : ""); return; }
   e.target.reset(); await loadItems(); renderItems(); toast(`Saved ${row.code}`);
 });
-$("#items-export").addEventListener("click", () => csv(items.map(i => ({ code: i.code, brand: i.brand, description: i.description, can_size_oz: i.can_size_oz, n2o_ratio_vol: i.n2o_ratio_vol, target_gas_g: i.target_gas_g })), "items.csv"));
+$("#items-export").addEventListener("click", () => csv(items.map(i => ({ code: i.code, brand: i.brand, description: i.description, cans_per_case: i.cans_per_case, bom_gas_g_per_can: i.bom_gas_g_per_can, n2o_ratio_vol: i.n2o_ratio_vol, target_gas_g: i.target_gas_g })), "items.csv"));
 
 /* ---------- production runs ---------- */
 async function loadRuns() {
@@ -120,7 +122,7 @@ async function loadRuns() {
   const tb = $("#runs-table tbody"); tb.innerHTML = "";
   rows.forEach(r => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${r.run_date}</td><td>${r.shift}</td><td>${r.item_code || "<span class='empty'>—</span>"}</td><td class="num">${fmt(r.cases)}</td><td class="num">${r.cans_per_case}</td><td>${r.notes || ""}</td>
+    tr.innerHTML = `<td>${r.line}</td><td>${r.run_date}</td><td>${r.shift}</td><td>${r.item_code || "<span class='empty'>—</span>"}</td><td class="num">${fmt(r.cases)}</td><td class="num">${r.cans_per_case}</td><td>${r.notes || ""}</td>
       <td><button class="small danger" data-del="${r.id}">Delete</button></td>`;
     tb.appendChild(tr);
   });
@@ -134,37 +136,38 @@ async function loadRuns() {
 }
 $("#run-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const row = formData(e.target); row.shift = Number(row.shift);
+  const row = formData(e.target); row.shift = Number(row.shift); if (row.item_code) row.item_code = normCode(row.item_code);
   const { error } = await sb.from("production_runs").insert(row);
   if (error) return toast(error.message, true);
   e.target.reset(); e.target.elements.cans_per_case.value = 12; loadRuns(); toast("Run saved");
 });
 
 /* ---------- meter readings ---------- */
-function parseReadings(text) {
+function parseReadings(text, order = "n2o_first", line = "C") {
   const rows = [];
   text.split(/\r?\n/).forEach(line => {
     const parts = line.split(/[\t,;]/).map(s => s.trim().replace(/^"|"$/g, ""));
     if (parts.length < 3) return;
-    const ts = new Date(parts[0]); const a = Number(parts[1]); const b = Number(parts[2]);
+    const ts = new Date(parts[0]); let a = Number(parts[1]); let b = Number(parts[2]);
     if (isNaN(ts) || isNaN(a) || isNaN(b)) return;
-    rows.push({ ts: ts.toISOString(), n2o_scf: a, n2_scf: b });
+    if (order === "n2_first") [a, b] = [b, a];
+    rows.push({ line, ts: ts.toISOString(), n2o_scf: a, n2_scf: b });
   });
   return rows;
 }
 $("#readings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const rows = parseReadings(e.target.elements.paste.value);
+  const rows = parseReadings(e.target.elements.paste.value, e.target.elements.order.value, e.target.elements.line.value);
   if (!rows.length) return toast("No readings recognised in the pasted text", true);
   const seen = new Set(); const uniq = rows.filter(r => !seen.has(r.ts) && seen.add(r.ts));
   let ok = 0;
   for (let i = 0; i < uniq.length; i += 500) {
-    const { error } = await sb.from("gas_readings").upsert(uniq.slice(i, i + 500), { onConflict: "ts", ignoreDuplicates: true });
+    const { error } = await sb.from("gas_readings").upsert(uniq.slice(i, i + 500), { onConflict: "line,ts", ignoreDuplicates: true });
     if (error) return toast(error.message, true);
     ok += Math.min(500, uniq.length - i);
     $("#readings-status").textContent = `Imported ${ok} of ${uniq.length}…`;
   }
-  $("#readings-status").textContent = ""; e.target.reset(); loadReadings(); toast(`Imported ${uniq.length} readings`);
+  $("#readings-status").textContent = ""; e.target.elements.paste.value = ""; loadReadings(); toast(`Imported ${uniq.length} readings`);
 });
 function shiftOf(d) { // returns {date:'YYYY-MM-DD', shift}
   const h = d.getHours(); let date = new Date(d); let shift;
@@ -173,18 +176,20 @@ function shiftOf(d) { // returns {date:'YYYY-MM-DD', shift}
 }
 async function loadReadings() {
   const rows = await fetchAll("gas_readings", "ts");
-  const pts = rows.map(r => ({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
+  const byLine = {};
+  rows.forEach(r => (byLine[r.line] = byLine[r.line] || []).push({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
   const groups = {};
-  pts.forEach(p => { const k = shiftOf(new Date(p.t)); const key = `${k.date}|${k.shift}`; (groups[key] = groups[key] || { ...k, n: 0 }).n++; });
+  Object.entries(byLine).forEach(([line, pts]) => pts.forEach(p => { const k = shiftOf(new Date(p.t)); const key = `${line}|${k.date}|${k.shift}`; (groups[key] = groups[key] || { line, ...k, n: 0 }).n++; }));
   const tb = $("#readings-table tbody"); tb.innerHTML = "";
-  Object.values(groups).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift).forEach(g => {
+  Object.values(groups).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line)).forEach(g => {
+    const pts = byLine[g.line];
     const [s, e] = shiftWindow(g.date, g.shift);
     const first = Math.max(s, pts[0].t), last = Math.min(e, pts[pts.length - 1].t);
     const a = interp(pts, first), b = interp(pts, last);
     const n2o = b.n2o - a.n2o, n2 = b.n2 - a.n2, pct = n2o + n2 > 0 ? n2o / (n2o + n2) * 100 : null;
     const full = first === s && last === e;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${g.date}</td><td>${g.shift}</td><td>${new Date(first).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${new Date(last).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${full ? "" : " (partial)"}</td>
+    tr.innerHTML = `<td>${g.line}</td><td>${g.date}</td><td>${g.shift}</td><td>${new Date(first).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${new Date(last).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${full ? "" : " (partial)"}</td>
       <td class="num">${fmt(g.n)}</td><td class="num n2o">${fmt(n2o)}</td><td class="num n2">${fmt(n2)}</td><td class="num n2o">${fmt(n2o * D.n2o)}</td><td class="num n2">${fmt(n2 * D.n2)}</td>
       <td>${pct == null ? "—" : `N₂O ${pct.toFixed(1)}% / ${(100 - pct).toFixed(1)}% N₂`}</td>`;
     tb.appendChild(tr);
@@ -229,9 +234,10 @@ function shiftWindow(dateStr, shift) {
 async function loadDashboard() {
   const from = $("#dash-from"), to = $("#dash-to");
   if (!from.value) { const t = new Date(); to.value = localDate(t); t.setDate(t.getDate() - 30); from.value = localDate(t); }
+  const line = $("#dash-line").value;
   const [runs, raw] = await Promise.all([
-    sb.from("production_runs").select("*").gte("run_date", from.value).lte("run_date", to.value).order("run_date").order("shift").then(r => r.data || []),
-    fetchAll("gas_readings", "ts"),
+    sb.from("production_runs").select("*").eq("line", line).gte("run_date", from.value).lte("run_date", to.value).order("run_date").order("shift").then(r => r.data || []),
+    fetchAll("gas_readings", "ts").then(r => r.filter(x => x.line === line)),
   ]);
   const readings = raw.map(r => ({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
   const dN2O = D.n2o, dN2 = D.n2, defTarget = DEFAULT_TARGET_G;
@@ -252,7 +258,7 @@ async function loadDashboard() {
       targetLb += n * (it.target_gas_g ?? defTarget) / G_PER_LB;
     });
     const cases = g.runs.reduce((x, r) => x + r.cases, 0);
-    const row = { date: g.date, shift: g.shift, cases, cans, targetLb };
+    const row = { line, date: g.date, shift: g.shift, cases, cans, targetLb };
     if (a && b) {
       row.n2oScf = b.n2o - a.n2o; row.n2Scf = b.n2 - a.n2;
       row.n2oLb = row.n2oScf * dN2O; row.n2Lb = row.n2Scf * dN2; row.totalLb = row.n2oLb + row.n2Lb;
@@ -266,8 +272,8 @@ async function loadDashboard() {
   const tb = $("#dash-table tbody"); tb.innerHTML = "";
   out.forEach(r => {
     const tr = document.createElement("tr");
-    if (r.totalLb == null) { tr.className = "muted"; tr.innerHTML = `<td>${r.date}</td><td>${r.shift}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="8">no meter data for this shift</td>`; }
-    else tr.innerHTML = `<td>${r.date}</td><td>${r.shift}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
+    if (r.totalLb == null) { tr.className = "muted"; tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="8">no meter data for this shift</td>`; }
+    else tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
       <td class="num n2o">${fmt(r.n2oLb)}</td><td class="num n2">${fmt(r.n2Lb)}</td><td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td>
       <td class="num">${fmt(r.targetLb)}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td><td class="num">${fmt(r.wastePct)}%</td>`;
     tb.appendChild(tr);
@@ -275,7 +281,7 @@ async function loadDashboard() {
   const have = out.filter(r => r.totalLb != null);
   const T = have.reduce((a, r) => ({ lb: a.lb + r.totalLb, tgt: a.tgt + r.targetLb, cans: a.cans + r.cans, cases: a.cases + r.cases }), { lb: 0, tgt: 0, cans: 0, cases: 0 });
   $("#dash-summary").textContent = have.length
-    ? `${have.length} shifts with meter data: ${fmt(T.cases)} cases, ${fmt(T.lb)} lb of blended gas metered against ${fmt(T.tgt)} lb needed at target — waste factor ${(T.lb / T.tgt).toFixed(2)}×, ${fmt(T.lb * G_PER_LB / T.cans, 1)} g per can.`
+    ? `${line} Line — ${have.length} shifts with meter data: ${fmt(T.cases)} cases, ${fmt(T.lb)} lb of blended gas metered against ${fmt(T.tgt)} lb needed at target — waste factor ${(T.lb / T.tgt).toFixed(2)}×, ${fmt(T.lb * G_PER_LB / T.cans, 1)} g per can.`
     : "No shifts with both production and meter data in this range. Add runs and import meter readings to see consumption.";
 
   if (chart) chart.destroy();
@@ -286,9 +292,10 @@ async function loadDashboard() {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
       scales: { y: { beginAtZero: true, title: { display: true, text: "× target" } } } }
   });
-  $("#dash-export").onclick = () => csv(out.map(r => ({ date: r.date, shift: r.shift, cases: r.cases, cans: r.cans, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, target_lb: r.targetLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_pct: r.wastePct })), "consumption_by_shift.csv");
+  $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, cases: r.cases, cans: r.cans, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, target_lb: r.targetLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_pct: r.wastePct })), "consumption_by_shift.csv");
 }
 $("#dash-refresh").addEventListener("click", loadDashboard);
+$("#dash-line").addEventListener("change", loadDashboard);
 
 /* ---------- conversions ---------- */
 function renderConvert() {

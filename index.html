@@ -38,6 +38,7 @@
       <header class="page-head">
         <h1>Consumption vs. production</h1>
         <div class="range">
+          <label>Line <select id="dash-line"><option value="C">C</option><option value="D">D</option></select></label>
           <label>From <input type="date" id="dash-from"></label>
           <label>To <input type="date" id="dash-to"></label>
           <button id="dash-refresh">Update</button>
@@ -48,7 +49,7 @@
       <div class="chart-wrap"><canvas id="chart-waste"></canvas></div>
       <table id="dash-table" class="data">
         <thead><tr>
-          <th>Date</th><th>Shift</th><th class="num">Cases</th><th class="num">Cans</th>
+          <th>Line</th><th>Date</th><th>Shift</th><th class="num">Cases</th><th class="num">Cans</th>
           <th class="num">N₂O lb</th><th class="num">N₂ lb</th><th class="num">Total lb</th>
           <th class="num">N₂O % vol</th><th class="num">Target lb</th><th class="num">g / can</th>
           <th class="num">Waste factor</th><th class="num">Waste %</th>
@@ -62,6 +63,7 @@
     <section id="page-runs" class="page hidden">
       <header class="page-head"><h1>Production runs</h1><button id="runs-export" class="secondary">Export CSV</button></header>
       <form id="run-form" class="entry">
+        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
         <label>Date <input type="date" name="run_date" required></label>
         <label>Shift
           <select name="shift" required>
@@ -75,7 +77,7 @@
         <button type="submit" class="primary">Save run</button>
       </form>
       <table id="runs-table" class="data">
-        <thead><tr><th>Date</th><th>Shift</th><th>Item</th><th class="num">Cases</th><th class="num">Cans/case</th><th>Notes</th><th></th></tr></thead>
+        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item</th><th class="num">Cases</th><th class="num">Cans/case</th><th>Notes</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -85,13 +87,17 @@
       <header class="page-head"><h1>Meter readings</h1><button id="readings-export" class="secondary">Export CSV</button></header>
       <p class="lede">Paste the meter export here — three columns: timestamp, N₂O totalizer scf, N₂ totalizer scf. Tab, comma, or semicolon separated; a header row is fine. Existing timestamps are skipped.</p>
       <form id="readings-form" class="entry">
+        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
+        <label>Column order in paste
+          <select name="order"><option value="n2o_first">timestamp, N₂O, N₂ (C Line export)</option><option value="n2_first">timestamp, N₂, N₂O (D Line export)</option></select>
+        </label>
         <textarea name="paste" rows="8" placeholder="2026-09-03 07:00:00	832658	358831"></textarea>
         <button type="submit" class="primary">Import readings</button>
         <span id="readings-status"></span>
       </form>
       <h2>By shift</h2>
       <table id="readings-table" class="data">
-        <thead><tr><th>Date</th><th>Shift</th><th>Coverage</th><th class="num">Points</th><th class="num">N₂O scf</th><th class="num">N₂ scf</th><th class="num">N₂O lb</th><th class="num">N₂ lb</th><th>Ratio (by volume)</th></tr></thead>
+        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Coverage</th><th class="num">Points</th><th class="num">N₂O scf</th><th class="num">N₂ scf</th><th class="num">N₂O lb</th><th class="num">N₂ lb</th><th>Ratio (by volume)</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -101,6 +107,7 @@
       <header class="page-head"><h1>Gas weight checks</h1><button id="checks-export" class="secondary">Export CSV</button></header>
       <p class="lede">Enter one row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before/after if you leave it blank. Export gives the whole table.</p>
       <form id="check-form" class="entry">
+        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
         <label>Date <input type="date" name="check_date" required></label>
         <label>Gasser <input type="number" name="gasser" min="1" max="9" required></label>
         <label>Time <input type="text" name="check_time" placeholder="07:20"></label>
@@ -126,13 +133,15 @@
         <label>Code <input type="text" name="code" required></label>
         <label>Brand <input type="text" name="brand"></label>
         <label>Description <input type="text" name="description"></label>
-        <label>Can size oz <input type="number" step="0.1" name="can_size_oz"></label>
+        <label>Cans / case <input type="number" name="cans_per_case" min="1"></label>
+        <label>BOM gas g/can <input type="number" step="0.01" name="bom_gas_g_per_can"></label>
         <label>N₂O ratio by volume <input type="number" step="0.001" min="0" max="1" name="n2o_ratio_vol" placeholder="e.g. 0.85"></label>
         <label>Target gas g/can <input type="number" step="0.01" name="target_gas_g"></label>
         <button type="submit" class="primary">Save item</button>
+        <p id="item-error" class="error" style="grid-column:1/-1"></p>
       </form>
       <table id="items-table" class="data">
-        <thead><tr><th>Code</th><th>Brand</th><th>Description</th><th class="num">Can oz</th><th class="num">N₂O ratio</th><th class="num">Target g</th><th></th></tr></thead>
+        <thead><tr><th>Code</th><th>Brand</th><th>Description</th><th class="num">Cans/case</th><th class="num">BOM g/can</th><th class="num">N₂O ratio</th><th class="num">Target g</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
