@@ -349,7 +349,7 @@ async function loadDashboard() {
   const colors = { C: "#c27a12", D: "#2457c5" }, cpmColors = { C: "#14212b", D: "#3e8e7e" };   // CPM lines: near-black for C, teal for D
   const bars = lines.map(L => ({ type: "bar", label: `${L} Line waste factor`, data: have.map(r => r.line === L ? r.wf : null), backgroundColor: colors[L], yAxisID: "y", order: 2, skipNull: true }));
   const showCpm = $("#dash-cpm").checked;
-  const cpmLines = showCpm ? lines.map(L => ({ type: "line", label: `${L} Line avg CPM`, data: have.map(r => r.line === L ? r.avgCpm : null), borderColor: cpmColors[L], backgroundColor: cpmColors[L], pointBackgroundColor: "#fff", pointBorderColor: cpmColors[L], pointBorderWidth: 2, pointRadius: 4, borderWidth: 2.5, spanGaps: true, yAxisID: "y2", order: 1 })) : [];
+  const cpmLines = showCpm ? lines.map(L => ({ type: "line", label: `${L} Line avg CPM`, data: have.map(r => r.line === L ? r.avgCpm : null), borderColor: cpmColors[L], backgroundColor: cpmColors[L], pointBackgroundColor: "#fff", pointBorderColor: cpmColors[L], pointBorderWidth: 2, pointRadius: 4, borderWidth: 2, borderDash: [6, 4], spanGaps: true, yAxisID: "y2", order: 1 })) : [];
   chart = new Chart($("#chart-waste"), {
     data: { labels: have.map(r => `${r.date.slice(5)} S${r.shift}`), datasets: [...bars, ...cpmLines] },
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
