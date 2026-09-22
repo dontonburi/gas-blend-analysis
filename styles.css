@@ -154,3 +154,12 @@ table.data tr.detail td { background: var(--bg); padding: 0.8rem 1.2rem 1rem; }
   table.data { display: block; overflow-x: auto; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* mini tables inside expanded rows */
+.detail-grid .span2 { grid-column: span 2; }
+table.mini { border-collapse: collapse; width: 100%; font-size: 0.875rem; margin-top: 0.15rem; background: #fff; border-radius: 0.5rem; overflow: hidden; box-shadow: none; }
+table.mini th, table.mini td { padding: 0.3rem 0.55rem; border-bottom: 1px solid var(--line); text-align: left; }
+table.mini th { font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); background: color-mix(in srgb, var(--pale) 50%, #fff); position: static; }
+table.mini .num { text-align: right; }
+table.mini tr.total td { font-weight: 500; border-bottom: 0; }
+table.mini td.n2o { color: var(--n2o); } table.mini td.n2 { color: var(--n2); } table.mini td.waste { color: var(--waste); font-weight: 700; }

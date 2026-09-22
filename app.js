@@ -284,17 +284,25 @@ function renderDashTable() {
       <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td>`;
     tb.appendChild(tr);
     const det = document.createElement("tr"); det.className = "detail hidden";
-    const itemsHtml = r.itemRows.map(x => `${x.code}${x.brand ? " (" + x.brand + ")" : ""}: ${fmt(x.cases)} cases × ${x.cpc} = ${fmt(x.cans)} cans${x.ratio != null ? ", " + (x.ratio * 100).toFixed(1) + "% N₂O" : ""}`).join("<br>");
+    const itemsTable = `<table class="mini"><thead><tr><th>Item</th><th>Brand</th><th class="num">Cases</th><th class="num">Cans/case</th><th class="num">Cans</th><th class="num">N₂O ratio</th></tr></thead><tbody>` +
+      r.itemRows.map(x => `<tr><td>${x.code}</td><td>${x.brand || "—"}</td><td class="num">${fmt(x.cases)}</td><td class="num">${x.cpc}</td><td class="num">${fmt(x.cans)}</td><td class="num">${x.ratio != null ? (x.ratio * 100).toFixed(1) + "%" : "default"}</td></tr>`).join("") +
+      (r.itemRows.length > 1 ? `<tr class="total"><td>Total</td><td></td><td class="num">${fmt(r.cases)}</td><td></td><td class="num">${fmt(r.cans)}</td><td></td></tr>` : "") + `</tbody></table>`;
+    const gasTable = r.totalLb == null ? "—" : `<table class="mini"><thead><tr><th>Gas</th><th class="num">scf</th><th class="num">lb</th><th class="num">% by vol</th></tr></thead><tbody>
+      <tr><td class="n2o">N₂O</td><td class="num">${fmt(r.n2oScf)}</td><td class="num">${fmt(r.n2oLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td></tr>
+      <tr><td class="n2">N₂</td><td class="num">${fmt(r.n2Scf)}</td><td class="num">${fmt(r.n2Lb)}</td><td class="num">${fmt(100 - r.volPct, 1)}%</td></tr>
+      <tr class="total"><td>Total</td><td class="num">${fmt(r.n2oScf + r.n2Scf)}</td><td class="num">${fmt(r.totalLb)}</td><td></td></tr></tbody></table>`;
+    const wasteRow = (label, tgt) => tgt ? `<tr><td>${label}</td><td class="num">${fmt(tgt)}</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb - tgt)}</td><td class="num">${r.totalLb == null ? "—" : fmt((r.totalLb - tgt) / tgt * 100) + "%"}</td><td class="num waste">${r.totalLb == null ? "—" : fmt(r.totalLb / tgt, 2) + "×"}</td></tr>` : "";
+    const wasteTable = `<table class="mini"><thead><tr><th>Basis</th><th class="num">Target lb</th><th class="num">Over target lb</th><th class="num">Waste %</th><th class="num">Factor</th></tr></thead><tbody>` +
+      wasteRow(`${DEFAULT_TARGET_G} g/can`, r.targetLb) + wasteRow("BOM standard", r.bomLb) + `</tbody></table>`;
     det.innerHTML = `<td colspan="12"><div class="detail-grid">
-      ${cell("Items", itemsHtml)}
+      <div class="span2">${cell("Items", itemsTable)}</div>
+      <div class="span2">${cell("Gas metered", gasTable)}</div>
+      <div class="span2">${cell("Target & waste", wasteTable)}</div>
       ${cell("Window", `${r.hours.toFixed(1)} h${r.hours < 7.9 ? " (partial meter coverage)" : ""}`)}
-      ${cell("Gas metered", r.totalLb == null ? "—" : `${fmt(r.n2oScf)} scf N₂O + ${fmt(r.n2Scf)} scf N₂<br>${fmt(r.n2oLb)} lb N₂O + ${fmt(r.n2Lb)} lb N₂ = ${fmt(r.totalLb)} lb`)}
       ${cell("Rates", r.totalLb == null ? "—" : `${fmt(r.lbHr)} lb/hr gas · ${fmt(r.casesHr)} cases/hr`)}
       ${cell("Efficiency", `${fmt(r.cans)} cans produced ÷ ${fmt(r.capacityCans)} capacity (${FILLER_SETPOINT[r.line]} cpm × ${r.hours.toFixed(1)} h) = <b>${fmt(r.eff)}%</b>`)}
       ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average (${fmt(r.avgCpm / FILLER_SETPOINT[r.line] * 100)}% of setpoint)<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
       ${cell("Downtime", r.pctDown == null ? "no downtime data" : `filler down ${fmt(r.pctDown)}% of shift · longest stop ${fmt(r.longestStop)} min`)}
-      ${cell("Target", `${fmt(r.targetLb)} lb at ${DEFAULT_TARGET_G} g/can${r.bomLb ? `<br>${fmt(r.bomLb)} lb at BOM standard (${fmt(r.wfBom, 2)}× vs BOM)` : ""}`)}
-      ${cell("Waste", r.totalLb == null ? "—" : `${fmt(r.totalLb - r.targetLb)} lb over target · ${fmt(r.wastePct)}% · ${fmt(r.wf, 2)}×`)}
       ${r.notes ? cell("Notes", r.notes) : ""}
     </div></td>`;
     tb.appendChild(det);
