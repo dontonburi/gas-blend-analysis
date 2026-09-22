@@ -188,6 +188,7 @@ async function loadReadings() {
     const first = Math.max(s, pts[0].t), last = Math.min(e, pts[pts.length - 1].t);
     const a = interp(pts, first), b = interp(pts, last);
     const n2o = b.n2o - a.n2o, n2 = b.n2 - a.n2, pct = n2o + n2 > 0 ? n2o / (n2o + n2) * 100 : null;
+    if (n2o + n2 < 50) return;   // idle shift (no meaningful gas flow) — not listed
     const full = first === s && last === e;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${g.line}</td><td>${g.date}</td><td>${g.shift}</td><td>${new Date(first).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${new Date(last).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${full ? "" : " (partial)"}</td>
