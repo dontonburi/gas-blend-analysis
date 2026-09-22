@@ -197,6 +197,19 @@ async function loadReadings() {
   $("#readings-export").onclick = () => csv(rows, "gas_readings.csv");
 }
 
+$("#filler-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const line = e.target.elements.line.value; const rows = [];
+  e.target.elements.paste.value.split(/\r?\n/).forEach(l => {
+    const p = l.split(/[\t,;]/).map(s => s.trim().replace(/^"|"$/g, "")); if (p.length < 2) return;
+    const ts = new Date(p[0]); const nums = p.slice(1).map(Number).filter(n => !isNaN(n)); if (isNaN(ts) || !nums.length) return;
+    rows.push({ line, ts: ts.toISOString(), cpm: nums.reduce((x, y) => x + y, 0) });
+  });
+  if (!rows.length) return toast("No filler readings recognised", true);
+  for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from("filler_readings").upsert(rows.slice(i, i + 500), { onConflict: "line,ts", ignoreDuplicates: true }); if (error) return toast(error.message, true); }
+  e.target.elements.paste.value = ""; toast(`Imported ${rows.length} filler readings to ${line} Line`);
+});
+
 /* ---------- gas weight checks ---------- */
 async function loadChecks() {
   const rows = await fetchAll("gas_weight_checks", "check_date", false);
@@ -234,65 +247,94 @@ function shiftWindow(dateStr, shift) {
 async function loadDashboard() {
   const from = $("#dash-from"), to = $("#dash-to");
   if (!from.value) { const t = new Date(); to.value = localDate(t); t.setDate(t.getDate() - 30); from.value = localDate(t); }
-  const line = $("#dash-line").value;
-  const [runs, raw] = await Promise.all([
-    sb.from("production_runs").select("*").eq("line", line).gte("run_date", from.value).lte("run_date", to.value).order("run_date").order("shift").then(r => r.data || []),
-    fetchAll("gas_readings", "ts").then(r => r.filter(x => x.line === line)),
+  const lineSel = $("#dash-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
+  const [runs, raw, fillerRaw] = await Promise.all([
+    sb.from("production_runs").select("*").in("line", lines).gte("run_date", from.value).lte("run_date", to.value).order("run_date").order("shift").then(r => r.data || []),
+    fetchAll("gas_readings", "ts"),
+    fetchAll("filler_readings", "ts").catch(() => []),
   ]);
-  const readings = raw.map(r => ({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
+  const readingsBy = {}, fillerBy = {};
+  raw.forEach(r => (readingsBy[r.line] = readingsBy[r.line] || []).push({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
+  fillerRaw.forEach(r => (fillerBy[r.line] = fillerBy[r.line] || []).push({ t: new Date(r.ts).getTime(), cpm: Number(r.cpm) }));
   const dN2O = D.n2o, dN2 = D.n2, defTarget = DEFAULT_TARGET_G;
 
-  // group runs by date+shift (several items may run in one shift)
   const groups = {};
-  runs.forEach(r => { const k = `${r.run_date}|${r.shift}`; (groups[k] = groups[k] || { date: r.run_date, shift: r.shift, runs: [] }).runs.push(r); });
+  runs.forEach(r => { const k = `${r.line}|${r.run_date}|${r.shift}`; (groups[k] = groups[k] || { line: r.line, date: r.run_date, shift: r.shift, runs: [] }).runs.push(r); });
   const out = [];
-  Object.values(groups).sort((a, b) => a.date.localeCompare(b.date) || a.shift - b.shift).forEach(g => {
+  Object.values(groups).sort((a, b) => a.date.localeCompare(b.date) || a.shift - b.shift || a.line.localeCompare(b.line)).forEach(g => {
+    const readings = readingsBy[g.line] || [];
     const [s, e] = shiftWindow(g.date, g.shift);
     const last = readings.length ? readings[readings.length - 1].t : 0;
-    const eUse = (e > last && e - last <= 15 * 60e3) ? last : e;   // accept an export that stops within 15 min of shift end
+    const eUse = (e > last && e - last <= 15 * 60e3) ? last : e;
     const a = interp(readings, s), b = interp(readings, eUse);
-    let cans = 0, targetLb = 0;
-    g.runs.forEach(r => {
+    let cans = 0, targetLb = 0, bomLb = 0;
+    const itemRows = g.runs.map(r => {
       const it = items.find(i => i.code === r.item_code) || {};
       const n = r.cases * (r.cans_per_case || 12); cans += n;
       targetLb += n * (it.target_gas_g ?? defTarget) / G_PER_LB;
+      if (it.bom_gas_g_per_can) bomLb += n * it.bom_gas_g_per_can / G_PER_LB;
+      return { code: r.item_code || "—", brand: it.brand || "", cases: r.cases, cpc: r.cans_per_case || 12, cans: n, ratio: it.n2o_ratio_vol };
     });
     const cases = g.runs.reduce((x, r) => x + r.cases, 0);
-    const row = { line, date: g.date, shift: g.shift, cases, cans, targetLb };
+    const hours = (eUse - s) / 3600e3;
+    const fill = (fillerBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.cpm);
+    const avgCpm = fill.length ? fill.reduce((x, y) => x + y, 0) / fill.length : null;
+    const pctRunning = fill.length ? fill.filter(c => c > 20).length / fill.length * 100 : null;
+    const row = { line: g.line, date: g.date, shift: g.shift, cases, cans, targetLb, bomLb, itemRows, hours, avgCpm, pctRunning,
+      items: [...new Set(itemRows.map(i => i.code))].join(" + "), fillerCans: avgCpm != null ? avgCpm * 60 * hours : null,
+      notes: g.runs.map(r => r.notes).filter(Boolean).join("; ") };
     if (a && b) {
       row.n2oScf = b.n2o - a.n2o; row.n2Scf = b.n2 - a.n2;
       row.n2oLb = row.n2oScf * dN2O; row.n2Lb = row.n2Scf * dN2; row.totalLb = row.n2oLb + row.n2Lb;
       row.volPct = row.n2oScf / (row.n2oScf + row.n2Scf) * 100;
       row.gPerCan = cans ? row.totalLb * G_PER_LB / cans : null;
       row.wf = targetLb ? row.totalLb / targetLb : null; row.wastePct = targetLb ? (row.totalLb - targetLb) / targetLb * 100 : null;
+      row.wfBom = bomLb ? row.totalLb / bomLb : null; row.lbHr = row.totalLb / hours; row.casesHr = cases / hours;
     }
     out.push(row);
   });
 
   const tb = $("#dash-table tbody"); tb.innerHTML = "";
-  out.forEach(r => {
-    const tr = document.createElement("tr");
-    if (r.totalLb == null) { tr.className = "muted"; tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="8">no meter data for this shift</td>`; }
-    else tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
-      <td class="num n2o">${fmt(r.n2oLb)}</td><td class="num n2">${fmt(r.n2Lb)}</td><td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td>
-      <td class="num">${fmt(r.targetLb)}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td><td class="num">${fmt(r.wastePct)}%</td>`;
+  const cell = (label, val) => `<div><span>${label}</span><b>${val}</b></div>`;
+  out.forEach((r) => {
+    const tr = document.createElement("tr"); tr.className = "run";
+    if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="5">no meter data for this shift</td>`; }
+    else tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
+      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td>`;
     tb.appendChild(tr);
+    const det = document.createElement("tr"); det.className = "detail hidden";
+    const itemsHtml = r.itemRows.map(x => `${x.code}${x.brand ? " (" + x.brand + ")" : ""}: ${fmt(x.cases)} cases × ${x.cpc} = ${fmt(x.cans)} cans${x.ratio != null ? ", " + (x.ratio * 100).toFixed(1) + "% N₂O" : ""}`).join("<br>");
+    det.innerHTML = `<td colspan="11"><div class="detail-grid">
+      ${cell("Items", itemsHtml)}
+      ${cell("Window", `${r.hours.toFixed(1)} h${r.hours < 7.9 ? " (partial meter coverage)" : ""}`)}
+      ${cell("Gas metered", r.totalLb == null ? "—" : `${fmt(r.n2oScf)} scf N₂O + ${fmt(r.n2Scf)} scf N₂<br>${fmt(r.n2oLb)} lb N₂O + ${fmt(r.n2Lb)} lb N₂ = ${fmt(r.totalLb)} lb`)}
+      ${cell("Rates", r.totalLb == null ? "—" : `${fmt(r.lbHr)} lb/hr gas · ${fmt(r.casesHr)} cases/hr`)}
+      ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average · running ${fmt(r.pctRunning)}% of shift<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
+      ${cell("Target", `${fmt(r.targetLb)} lb at ${DEFAULT_TARGET_G} g/can${r.bomLb ? `<br>${fmt(r.bomLb)} lb at BOM standard (${fmt(r.wfBom, 2)}× vs BOM)` : ""}`)}
+      ${cell("Waste", r.totalLb == null ? "—" : `${fmt(r.totalLb - r.targetLb)} lb over target · ${fmt(r.wastePct)}% · ${fmt(r.wf, 2)}×`)}
+      ${r.notes ? cell("Notes", r.notes) : ""}
+    </div></td>`;
+    tb.appendChild(det);
   });
+  tb.onclick = (e) => { const tr = e.target.closest("tr.run"); if (tr) tr.nextElementSibling.classList.toggle("hidden"); };
+
   const have = out.filter(r => r.totalLb != null);
-  const T = have.reduce((a, r) => ({ lb: a.lb + r.totalLb, tgt: a.tgt + r.targetLb, cans: a.cans + r.cans, cases: a.cases + r.cases }), { lb: 0, tgt: 0, cans: 0, cases: 0 });
-  $("#dash-summary").textContent = have.length
-    ? `${line} Line — ${have.length} shifts with meter data: ${fmt(T.cases)} cases, ${fmt(T.lb)} lb of blended gas metered against ${fmt(T.tgt)} lb needed at target — waste factor ${(T.lb / T.tgt).toFixed(2)}×, ${fmt(T.lb * G_PER_LB / T.cans, 1)} g per can.`
-    : "No shifts with both production and meter data in this range. Add runs and import meter readings to see consumption.";
+  const summ = lines.map(L => { const h = have.filter(r => r.line === L); if (!h.length) return null;
+    const T = h.reduce((a, r) => ({ lb: a.lb + r.totalLb, tgt: a.tgt + r.targetLb, cans: a.cans + r.cans, cases: a.cases + r.cases }), { lb: 0, tgt: 0, cans: 0, cases: 0 });
+    return `<b>${L} Line</b>: ${h.length} shifts, ${fmt(T.cases)} cases, ${fmt(T.lb)} lb metered vs ${fmt(T.tgt)} lb target — <b>${(T.lb / T.tgt).toFixed(2)}×</b>, ${fmt(T.lb * G_PER_LB / T.cans, 1)} g/can`; }).filter(Boolean);
+  $("#dash-summary").innerHTML = summ.length ? summ.join("<br>") : "No shifts with both production and meter data in this range.";
 
   if (chart) chart.destroy();
+  const colors = { C: "#c27a12", D: "#2457c5" };
   chart = new Chart($("#chart-waste"), {
     type: "bar",
     data: { labels: have.map(r => `${r.date.slice(5)} S${r.shift}`),
-      datasets: [{ label: "Waste factor (metered ÷ target)", data: have.map(r => r.wf), backgroundColor: "#c27a12" }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, title: { display: true, text: "× target" } } } }
+      datasets: lines.map(L => ({ label: `${L} Line`, data: have.map(r => r.line === L ? r.wf : null), backgroundColor: colors[L], skipNull: true })) },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: lines.length > 1 }, tooltip: { callbacks: { afterLabel: (c) => { const r = have[c.dataIndex]; return `${r.items} · ${fmt(r.cases)} cases${r.avgCpm == null ? "" : " · " + fmt(r.avgCpm) + " cpm"}`; } } } },
+      scales: { x: { stacked: true }, y: { beginAtZero: true, title: { display: true, text: "× target" } } } }
   });
-  $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, cases: r.cases, cans: r.cans, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, target_lb: r.targetLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_pct: r.wastePct })), "consumption_by_shift.csv");
+  $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, items: r.items, cases: r.cases, cans: r.cans, hours: r.hours, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, avg_cpm: r.avgCpm, pct_filler_running: r.pctRunning, target_lb: r.targetLb, bom_target_lb: r.bomLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_factor_vs_bom: r.wfBom, waste_pct: r.wastePct, notes: r.notes })), "consumption_by_shift.csv");
 }
 $("#dash-refresh").addEventListener("click", loadDashboard);
 $("#dash-line").addEventListener("change", loadDashboard);

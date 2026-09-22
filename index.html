@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>C Line gas log</title>
+<title>Gas Blend Runs</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
@@ -12,7 +12,7 @@
 
 <div id="signin" class="signin">
   <form id="signin-form" class="signin-card">
-    <h1>C Line gas log</h1>
+    <h1>Gas Blend Runs</h1>
     <p>Enter the password to continue.</p>
     <label>Password <input type="password" id="password" autocomplete="off" required autofocus></label>
     <button type="submit" class="primary">Open</button>
@@ -22,7 +22,7 @@
 
 <div id="app" class="app hidden">
   <nav class="rail">
-    <div class="brand">C Line<br>gas log</div>
+    <div class="brand">Gas Blend<br>Runs</div>
     <a href="#dashboard" data-page="dashboard" class="active">Dashboard</a>
     <a href="#runs" data-page="runs">Production runs</a>
     <a href="#readings" data-page="readings">Meter readings</a>
@@ -38,7 +38,7 @@
       <header class="page-head">
         <h1>Consumption vs. production</h1>
         <div class="range">
-          <label>Line <select id="dash-line"><option value="C">C</option><option value="D">D</option></select></label>
+          <label>Line <select id="dash-line"><option value="ALL">Both</option><option value="C">C</option><option value="D">D</option></select></label>
           <label>From <input type="date" id="dash-from"></label>
           <label>To <input type="date" id="dash-to"></label>
           <button id="dash-refresh">Update</button>
@@ -49,14 +49,13 @@
       <div class="chart-wrap"><canvas id="chart-waste"></canvas></div>
       <table id="dash-table" class="data">
         <thead><tr>
-          <th>Line</th><th>Date</th><th>Shift</th><th class="num">Cases</th><th class="num">Cans</th>
-          <th class="num">N₂O lb</th><th class="num">N₂ lb</th><th class="num">Total lb</th>
-          <th class="num">N₂O % vol</th><th class="num">Target lb</th><th class="num">g / can</th>
-          <th class="num">Waste factor</th><th class="num">Waste %</th>
+          <th>Line</th><th>Date</th><th>Shift</th><th>Items</th><th class="num">Cases</th><th class="num">Cans</th>
+          <th class="num">Total lb</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th class="num">g / can</th>
+          <th class="num">Waste factor</th>
         </tr></thead>
         <tbody></tbody>
       </table>
-      <p class="hint">Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
+      <p class="hint">Click a row for the full breakdown. Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
     </section>
 
     <!-- RUNS -->
@@ -94,6 +93,12 @@
         <textarea name="paste" rows="8" placeholder="2026-09-03 07:00:00	832658	358831"></textarea>
         <button type="submit" class="primary">Import readings</button>
         <span id="readings-status"></span>
+      </form>
+      <h2>Filler cans-per-minute</h2>
+      <form id="filler-form" class="entry">
+        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
+        <textarea name="paste" rows="4" placeholder="timestamp, cans per minute   (for D Line paste D1 and D2 as two columns; they are summed)"></textarea>
+        <button type="submit" class="primary">Import filler readings</button>
       </form>
       <h2>By shift</h2>
       <table id="readings-table" class="data">
