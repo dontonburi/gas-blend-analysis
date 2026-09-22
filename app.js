@@ -15,7 +15,8 @@ const SHIFT_START = { 1: 7, 2: 15, 3: 23 };   // hour of day, local time
 
 const D = { n2o: 0.116, n2: 0.0739 };            // lb per scf at 60F / 14.7 psia
 const DEFAULT_RATIO_VOL = 0.85;                   // N2O fraction by volume when item ratio is blank
-const DEFAULT_TARGET_G = 4.87;                    // g gas per can when item target is blank
+const DEFAULT_TARGET_G = 4.87;
+const FILLER_SETPOINT = { C: 300, D: 250 };            // cans per minute at full speed                    // g gas per can when item target is blank
 const PASSWORD_HASH = "b4b9c4c60e9dd10880a39f1825f1de018e23aea06e08b8d94aa336519d5fc088";
 const normCode = (c) => (c || "").trim().toUpperCase().replace(/^([A-Z]{2}\d+).*$/, "$1");   // AD28-T, AG45-WIP -> AD28, AG45
 let items = [];
@@ -209,6 +210,18 @@ $("#filler-form").addEventListener("submit", async (e) => {
   for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from("filler_readings").upsert(rows.slice(i, i + 500), { onConflict: "line,ts", ignoreDuplicates: true }); if (error) return toast(error.message, true); }
   e.target.elements.paste.value = ""; toast(`Imported ${rows.length} filler readings to ${line} Line`);
 });
+$("#downtime-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const line = e.target.elements.line.value; const rows = [];
+  e.target.elements.paste.value.split(/\r?\n/).forEach(l => {
+    const p = l.split(/[\t,;]/).map(s => s.trim().replace(/^"|"$/g, "")); if (p.length < 2) return;
+    const ts = new Date(p[0]); const nums = p.slice(1).map(Number).filter(n => !isNaN(n)); if (isNaN(ts) || !nums.length) return;
+    rows.push({ line, ts: ts.toISOString(), downtime_mins: Math.min(...nums) });
+  });
+  if (!rows.length) return toast("No downtime readings recognised", true);
+  for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from("filler_downtime").upsert(rows.slice(i, i + 500), { onConflict: "line,ts", ignoreDuplicates: true }); if (error) return toast(error.message, true); }
+  e.target.elements.paste.value = ""; toast(`Imported ${rows.length} downtime readings to ${line} Line`);
+});
 
 /* ---------- gas weight checks ---------- */
 async function loadChecks() {
@@ -248,12 +261,14 @@ async function loadDashboard() {
   const from = $("#dash-from"), to = $("#dash-to");
   if (!from.value) { const t = new Date(); to.value = localDate(t); t.setDate(t.getDate() - 30); from.value = localDate(t); }
   const lineSel = $("#dash-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
-  const [runs, raw, fillerRaw] = await Promise.all([
+  const [runs, raw, fillerRaw, downRaw] = await Promise.all([
     sb.from("production_runs").select("*").in("line", lines).gte("run_date", from.value).lte("run_date", to.value).order("run_date").order("shift").then(r => r.data || []),
     fetchAll("gas_readings", "ts"),
     fetchAll("filler_readings", "ts").catch(() => []),
+    fetchAll("filler_downtime", "ts").catch(() => []),
   ]);
-  const readingsBy = {}, fillerBy = {};
+  const readingsBy = {}, fillerBy = {}, downBy = {};
+  downRaw.forEach(r => (downBy[r.line] = downBy[r.line] || []).push({ t: new Date(r.ts).getTime(), m: Number(r.downtime_mins) }));
   raw.forEach(r => (readingsBy[r.line] = readingsBy[r.line] || []).push({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
   fillerRaw.forEach(r => (fillerBy[r.line] = fillerBy[r.line] || []).push({ t: new Date(r.ts).getTime(), cpm: Number(r.cpm) }));
   const dN2O = D.n2o, dN2 = D.n2, defTarget = DEFAULT_TARGET_G;
@@ -280,7 +295,11 @@ async function loadDashboard() {
     const fill = (fillerBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.cpm);
     const avgCpm = fill.length ? fill.reduce((x, y) => x + y, 0) / fill.length : null;
     const pctRunning = fill.length ? fill.filter(c => c > 20).length / fill.length * 100 : null;
-    const row = { line: g.line, date: g.date, shift: g.shift, cases, cans, targetLb, bomLb, itemRows, hours, avgCpm, pctRunning,
+    const eff = avgCpm != null ? avgCpm / FILLER_SETPOINT[g.line] * 100 : null;
+    const dn = (downBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.m);
+    const pctDown = dn.length ? dn.filter(m => m > 5).length / dn.length * 100 : null;
+    const longestStop = dn.length ? Math.max(...dn) : null;
+    const row = { line: g.line, date: g.date, shift: g.shift, cases, cans, targetLb, bomLb, itemRows, hours, avgCpm, pctRunning, eff, pctDown, longestStop,
       items: [...new Set(itemRows.map(i => i.code))].join(" + "), fillerCans: avgCpm != null ? avgCpm * 60 * hours : null,
       notes: g.runs.map(r => r.notes).filter(Boolean).join("; ") };
     if (a && b) {
@@ -298,18 +317,19 @@ async function loadDashboard() {
   const cell = (label, val) => `<div><span>${label}</span><b>${val}</b></div>`;
   out.forEach((r) => {
     const tr = document.createElement("tr"); tr.className = "run";
-    if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="5">no meter data for this shift</td>`; }
+    if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="6">no meter data for this shift</td>`; }
     else tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
-      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td>`;
+      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td>`;
     tb.appendChild(tr);
     const det = document.createElement("tr"); det.className = "detail hidden";
     const itemsHtml = r.itemRows.map(x => `${x.code}${x.brand ? " (" + x.brand + ")" : ""}: ${fmt(x.cases)} cases × ${x.cpc} = ${fmt(x.cans)} cans${x.ratio != null ? ", " + (x.ratio * 100).toFixed(1) + "% N₂O" : ""}`).join("<br>");
-    det.innerHTML = `<td colspan="11"><div class="detail-grid">
+    det.innerHTML = `<td colspan="12"><div class="detail-grid">
       ${cell("Items", itemsHtml)}
       ${cell("Window", `${r.hours.toFixed(1)} h${r.hours < 7.9 ? " (partial meter coverage)" : ""}`)}
       ${cell("Gas metered", r.totalLb == null ? "—" : `${fmt(r.n2oScf)} scf N₂O + ${fmt(r.n2Scf)} scf N₂<br>${fmt(r.n2oLb)} lb N₂O + ${fmt(r.n2Lb)} lb N₂ = ${fmt(r.totalLb)} lb`)}
       ${cell("Rates", r.totalLb == null ? "—" : `${fmt(r.lbHr)} lb/hr gas · ${fmt(r.casesHr)} cases/hr`)}
-      ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average · running ${fmt(r.pctRunning)}% of shift<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
+      ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average = ${fmt(r.eff)}% of ${FILLER_SETPOINT[r.line]} cpm setpoint<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
+      ${cell("Downtime", r.pctDown == null ? "no downtime data" : `filler down ${fmt(r.pctDown)}% of shift · longest stop ${fmt(r.longestStop)} min`)}
       ${cell("Target", `${fmt(r.targetLb)} lb at ${DEFAULT_TARGET_G} g/can${r.bomLb ? `<br>${fmt(r.bomLb)} lb at BOM standard (${fmt(r.wfBom, 2)}× vs BOM)` : ""}`)}
       ${cell("Waste", r.totalLb == null ? "—" : `${fmt(r.totalLb - r.targetLb)} lb over target · ${fmt(r.wastePct)}% · ${fmt(r.wf, 2)}×`)}
       ${r.notes ? cell("Notes", r.notes) : ""}
@@ -327,16 +347,16 @@ async function loadDashboard() {
   if (chart) chart.destroy();
   const colors = { C: "#c27a12", D: "#2457c5" }, light = { C: "rgba(194,122,18,0.35)", D: "rgba(36,87,197,0.35)" };
   const bars = lines.map(L => ({ type: "bar", label: `${L} Line waste factor`, data: have.map(r => r.line === L ? r.wf : null), backgroundColor: colors[L], yAxisID: "y", order: 2, skipNull: true }));
-  const cpmLines = lines.map(L => ({ type: "line", label: `${L} Line avg CPM`, data: have.map(r => r.line === L ? r.avgCpm : null), borderColor: light[L], backgroundColor: light[L], pointBackgroundColor: colors[L], pointRadius: 4, borderWidth: 2, spanGaps: true, yAxisID: "y2", order: 1 }));
+  const cpmLines = lines.map(L => ({ type: "line", label: `${L} Line filler efficiency`, data: have.map(r => r.line === L ? r.eff : null), borderColor: light[L], backgroundColor: light[L], pointBackgroundColor: colors[L], pointRadius: 4, borderWidth: 2, spanGaps: true, yAxisID: "y2", order: 1 }));
   chart = new Chart($("#chart-waste"), {
     data: { labels: have.map(r => `${r.date.slice(5)} S${r.shift}`), datasets: [...bars, ...cpmLines] },
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
       plugins: { legend: { display: true }, tooltip: { callbacks: { afterBody: (c) => { const r = have[c[0].dataIndex]; return `${r.items} · ${fmt(r.cases)} cases`; } } } },
       scales: { x: { stacked: true },
         y: { beginAtZero: true, position: "left", title: { display: true, text: "waste factor (× target)" } },
-        y2: { beginAtZero: true, position: "right", grid: { drawOnChartArea: false }, title: { display: true, text: "filler cans / min" } } } }
+        y2: { beginAtZero: true, suggestedMax: 100, position: "right", grid: { drawOnChartArea: false }, title: { display: true, text: "filler efficiency (% of setpoint)" }, ticks: { callback: v => v + "%" } } } }
   });
-  $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, items: r.items, cases: r.cases, cans: r.cans, hours: r.hours, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, avg_cpm: r.avgCpm, pct_filler_running: r.pctRunning, target_lb: r.targetLb, bom_target_lb: r.bomLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_factor_vs_bom: r.wfBom, waste_pct: r.wastePct, notes: r.notes })), "consumption_by_shift.csv");
+  $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, items: r.items, cases: r.cases, cans: r.cans, hours: r.hours, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, avg_cpm: r.avgCpm, filler_efficiency_pct: r.eff, pct_shift_filler_down: r.pctDown, longest_stop_min: r.longestStop, target_lb: r.targetLb, bom_target_lb: r.bomLb, g_per_can: r.gPerCan, waste_factor: r.wf, waste_factor_vs_bom: r.wfBom, waste_pct: r.wastePct, notes: r.notes })), "consumption_by_shift.csv");
 }
 $("#dash-refresh").addEventListener("click", loadDashboard);
 $("#dash-line").addEventListener("change", loadDashboard);

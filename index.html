@@ -50,12 +50,12 @@
       <table id="dash-table" class="data">
         <thead><tr>
           <th>Line</th><th>Date</th><th>Shift</th><th>Items</th><th class="num">Cases</th><th class="num">Cans</th>
-          <th class="num">Total lb</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th class="num">g / can</th>
+          <th class="num">Total lb</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th class="num">Efficiency</th><th class="num">g / can</th>
           <th class="num">Waste factor</th>
         </tr></thead>
         <tbody></tbody>
       </table>
-      <p class="hint">Click a row for the full breakdown. Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
+      <p class="hint">Click a row for the full breakdown. Efficiency = average filler cpm ÷ setpoint (C 300, D 250). Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
     </section>
 
     <!-- RUNS -->
@@ -99,6 +99,12 @@
         <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
         <textarea name="paste" rows="4" placeholder="timestamp, cans per minute   (for D Line paste D1 and D2 as two columns; they are summed)"></textarea>
         <button type="submit" class="primary">Import filler readings</button>
+      </form>
+      <h2>Filler current downtime (minutes)</h2>
+      <form id="downtime-form" class="entry">
+        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
+        <textarea name="paste" rows="4" placeholder="timestamp, current downtime mins   (for D Line paste D1 and D2; the line counts as down only when both are)"></textarea>
+        <button type="submit" class="primary">Import downtime readings</button>
       </form>
       <h2>By shift</h2>
       <table id="readings-table" class="data">
