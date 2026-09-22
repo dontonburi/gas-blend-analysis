@@ -104,3 +104,6 @@ table.data tr.detail td { background: #f7f9fb; padding: 0.6rem 1rem 0.8rem; }
   main { padding: 1rem; }
   table.data { display: block; overflow-x: auto; }
 }
+
+.range label.check { flex-direction: row; align-items: center; gap: 0.4rem; padding-bottom: 0.45rem; color: var(--ink); font-size: 0.95rem; }
+.range label.check input { width: auto; }
