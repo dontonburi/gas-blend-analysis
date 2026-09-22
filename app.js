@@ -279,8 +279,8 @@ function renderDashTable() {
   const cell = (label, val) => `<div><span>${label}</span><b>${val}</b></div>`;
   rows.forEach((r) => {
     const tr = document.createElement("tr"); tr.className = "run";
-    if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="6">no meter data for this shift</td>`; }
-    else tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
+    if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="6">no meter data for this shift</td>`; }
+    else tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
       <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td>`;
     tb.appendChild(tr);
     const det = document.createElement("tr"); det.className = "detail hidden";
@@ -294,16 +294,23 @@ function renderDashTable() {
     const wasteRow = (label, tgt) => tgt ? `<tr><td>${label}</td><td class="num">${fmt(tgt)}</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb - tgt)}</td><td class="num">${r.totalLb == null ? "—" : fmt((r.totalLb - tgt) / tgt * 100) + "%"}</td><td class="num waste">${r.totalLb == null ? "—" : fmt(r.totalLb / tgt, 2) + "×"}</td></tr>` : "";
     const wasteTable = `<table class="mini"><thead><tr><th>Basis</th><th class="num">Target lb</th><th class="num">Over target lb</th><th class="num">Waste %</th><th class="num">Factor</th></tr></thead><tbody>` +
       wasteRow(`${DEFAULT_TARGET_G} g/can`, r.targetLb) + wasteRow("BOM standard", r.bomLb) + `</tbody></table>`;
-    det.innerHTML = `<td colspan="12"><div class="detail-grid">
-      <div class="span2">${cell("Items", itemsTable)}</div>
-      <div class="span2">${cell("Gas metered", gasTable)}</div>
-      <div class="span2">${cell("Target & waste", wasteTable)}</div>
-      ${cell("Window", `${r.hours.toFixed(1)} h${r.hours < 7.9 ? " (partial meter coverage)" : ""}`)}
-      ${cell("Rates", r.totalLb == null ? "—" : `${fmt(r.lbHr)} lb/hr gas · ${fmt(r.casesHr)} cases/hr`)}
-      ${cell("Efficiency", `${fmt(r.cans)} cans produced ÷ ${fmt(r.capacityCans)} capacity (${FILLER_SETPOINT[r.line]} cpm × ${r.hours.toFixed(1)} h) = <b>${fmt(r.eff)}%</b>`)}
-      ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average (${fmt(r.avgCpm / FILLER_SETPOINT[r.line] * 100)}% of setpoint)<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
-      ${cell("Downtime", r.pctDown == null ? "no downtime data" : `filler down ${fmt(r.pctDown)}% of shift · longest stop ${fmt(r.longestStop)} min`)}
-      ${r.notes ? cell("Notes", r.notes) : ""}
+    const kv = (label, val) => `<div class="kv"><span>${label}</span><div>${val}</div></div>`;
+    det.innerHTML = `<td colspan="12"><div class="detail">
+      <div class="detail-tables">
+        <section><h4>Items</h4>${itemsTable}</section>
+        <div class="detail-pair">
+          <section><h4>Gas metered</h4>${gasTable}</section>
+          <section><h4>Target &amp; waste</h4>${wasteTable}</section>
+        </div>
+      </div>
+      <div class="detail-stats">
+        ${kv("Window", `${r.hours.toFixed(1)} h${r.hours < 7.9 ? " · partial meter coverage" : ""}`)}
+        ${kv("Rates", r.totalLb == null ? "—" : `${fmt(r.lbHr)} lb/hr gas<br>${fmt(r.casesHr)} cases/hr`)}
+        ${kv("Efficiency", `<b>${fmt(r.eff)}%</b> — ${fmt(r.cans)} cans ÷ ${fmt(r.capacityCans)} capacity<br><small>${FILLER_SETPOINT[r.line]} cpm × ${r.hours.toFixed(1)} h</small>`)}
+        ${kv("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average (${fmt(r.avgCpm / FILLER_SETPOINT[r.line] * 100)}% of setpoint)<br><small>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases</small>`)}
+        ${kv("Downtime", r.pctDown == null ? "no downtime data" : `down ${fmt(r.pctDown)}% of shift<br><small>longest stop ${fmt(r.longestStop)} min</small>`)}
+        ${r.notes ? kv("Notes", r.notes) : ""}
+      </div>
     </div></td>`;
     tb.appendChild(det);
   });
