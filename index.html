@@ -48,11 +48,19 @@
       </header>
       <p class="lede" id="dash-summary"></p>
       <div class="chart-wrap"><canvas id="chart-waste"></canvas></div>
+      <div class="filters">
+        <label>Item <input type="text" id="f-item" placeholder="e.g. AD54 or Dunkin"></label>
+        <label>Shift <select id="f-shift"><option value="">Any</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+        <label>Waste factor ≥ <input type="number" id="f-wf" step="0.1" min="0" placeholder="any"></label>
+        <label>Efficiency ≤ <input type="number" id="f-eff" step="1" min="0" placeholder="any %"></label>
+        <button id="f-clear" class="secondary">Clear</button>
+        <span id="f-count" class="hint"></span>
+      </div>
       <table id="dash-table" class="data">
         <thead><tr>
-          <th>Line</th><th>Date</th><th>Shift</th><th>Items</th><th class="num">Cases</th><th class="num">Cans</th>
-          <th class="num">Total lb</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th class="num">Efficiency</th><th class="num">g / can</th>
-          <th class="num">Waste factor</th>
+          <th data-sort="line">Line</th><th data-sort="date">Date</th><th data-sort="shift">Shift</th><th data-sort="items">Items</th><th class="num" data-sort="cases">Cases</th><th class="num" data-sort="cans">Cans</th>
+          <th class="num" data-sort="totalLb">Total lb</th><th class="num" data-sort="volPct">N₂O % vol</th><th class="num" data-sort="avgCpm">Avg CPM</th><th class="num" data-sort="eff">Efficiency</th><th class="num" data-sort="gPerCan">g / can</th>
+          <th class="num" data-sort="wf">Waste factor</th>
         </tr></thead>
         <tbody></tbody>
       </table>

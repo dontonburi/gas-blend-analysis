@@ -258,6 +258,49 @@ function shiftWindow(dateStr, shift) {
   const s = new Date(y, m - 1, d, SHIFT_START[shift]); const e = new Date(s.getTime() + 8 * 3600e3);
   return [s.getTime(), e.getTime()];
 }
+let dashRows = [], dashSort = { key: "date", dir: 1 };
+function renderDashTable() {
+  const fItem = $("#f-item").value.trim().toLowerCase(), fShift = $("#f-shift").value, fWf = parseFloat($("#f-wf").value), fEff = parseFloat($("#f-eff").value);
+  let rows = dashRows.filter(r =>
+    (!fItem || r.items.toLowerCase().includes(fItem) || r.itemRows.some(x => (x.brand || "").toLowerCase().includes(fItem))) &&
+    (!fShift || String(r.shift) === fShift) &&
+    (isNaN(fWf) || (r.wf != null && r.wf >= fWf)) &&
+    (isNaN(fEff) || (r.eff != null && r.eff <= fEff)));
+  const k = dashSort.key, d = dashSort.dir;
+  rows = [...rows].sort((x, y) => { const a = x[k], b = y[k]; if (a == null && b == null) return 0; if (a == null) return 1; if (b == null) return -1;
+    return (typeof a === "string" ? a.localeCompare(b) : a - b) * d || x.date.localeCompare(y.date) || x.shift - y.shift; });
+  $$("#dash-table th[data-sort]").forEach(th => th.classList.toggle("asc", th.dataset.sort === k && d === 1) || th.classList.toggle("desc", th.dataset.sort === k && d === -1));
+  $("#f-count").textContent = `${rows.length} of ${dashRows.length} shifts`;
+  const tb = $("#dash-table tbody"); tb.innerHTML = "";
+  const cell = (label, val) => `<div><span>${label}</span><b>${val}</b></div>`;
+  rows.forEach((r) => {
+    const tr = document.createElement("tr"); tr.className = "run";
+    if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="6">no meter data for this shift</td>`; }
+    else tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
+      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td>`;
+    tb.appendChild(tr);
+    const det = document.createElement("tr"); det.className = "detail hidden";
+    const itemsHtml = r.itemRows.map(x => `${x.code}${x.brand ? " (" + x.brand + ")" : ""}: ${fmt(x.cases)} cases × ${x.cpc} = ${fmt(x.cans)} cans${x.ratio != null ? ", " + (x.ratio * 100).toFixed(1) + "% N₂O" : ""}`).join("<br>");
+    det.innerHTML = `<td colspan="12"><div class="detail-grid">
+      ${cell("Items", itemsHtml)}
+      ${cell("Window", `${r.hours.toFixed(1)} h${r.hours < 7.9 ? " (partial meter coverage)" : ""}`)}
+      ${cell("Gas metered", r.totalLb == null ? "—" : `${fmt(r.n2oScf)} scf N₂O + ${fmt(r.n2Scf)} scf N₂<br>${fmt(r.n2oLb)} lb N₂O + ${fmt(r.n2Lb)} lb N₂ = ${fmt(r.totalLb)} lb`)}
+      ${cell("Rates", r.totalLb == null ? "—" : `${fmt(r.lbHr)} lb/hr gas · ${fmt(r.casesHr)} cases/hr`)}
+      ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average = ${fmt(r.eff)}% of ${FILLER_SETPOINT[r.line]} cpm setpoint<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
+      ${cell("Downtime", r.pctDown == null ? "no downtime data" : `filler down ${fmt(r.pctDown)}% of shift · longest stop ${fmt(r.longestStop)} min`)}
+      ${cell("Target", `${fmt(r.targetLb)} lb at ${DEFAULT_TARGET_G} g/can${r.bomLb ? `<br>${fmt(r.bomLb)} lb at BOM standard (${fmt(r.wfBom, 2)}× vs BOM)` : ""}`)}
+      ${cell("Waste", r.totalLb == null ? "—" : `${fmt(r.totalLb - r.targetLb)} lb over target · ${fmt(r.wastePct)}% · ${fmt(r.wf, 2)}×`)}
+      ${r.notes ? cell("Notes", r.notes) : ""}
+    </div></td>`;
+    tb.appendChild(det);
+  });
+  tb.onclick = (e) => { const tr = e.target.closest("tr.run"); if (tr) tr.nextElementSibling.classList.toggle("hidden"); };
+}
+["#f-item", "#f-shift", "#f-wf", "#f-eff"].forEach(id => $(id).addEventListener("input", renderDashTable));
+$("#f-clear").addEventListener("click", () => { ["#f-item", "#f-wf", "#f-eff"].forEach(id => $(id).value = ""); $("#f-shift").value = ""; renderDashTable(); });
+$("#dash-table thead").addEventListener("click", (e) => { const th = e.target.closest("th[data-sort]"); if (!th) return;
+  dashSort = th.dataset.sort === dashSort.key ? { key: dashSort.key, dir: -dashSort.dir } : { key: th.dataset.sort, dir: th.dataset.sort === "wf" || th.dataset.sort === "gPerCan" ? -1 : 1 }; renderDashTable(); });
+
 async function loadDashboard() {
   const from = $("#dash-from"), to = $("#dash-to");
   if (!from.value) { const t = new Date(); to.value = localDate(t); t.setDate(t.getDate() - 30); from.value = localDate(t); }
@@ -314,30 +357,8 @@ async function loadDashboard() {
     out.push(row);
   });
 
-  const tb = $("#dash-table tbody"); tb.innerHTML = "";
-  const cell = (label, val) => `<div><span>${label}</span><b>${val}</b></div>`;
-  out.forEach((r) => {
-    const tr = document.createElement("tr"); tr.className = "run";
-    if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="6">no meter data for this shift</td>`; }
-    else tr.innerHTML = `<td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
-      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${fmt(r.wf, 2)}×</td>`;
-    tb.appendChild(tr);
-    const det = document.createElement("tr"); det.className = "detail hidden";
-    const itemsHtml = r.itemRows.map(x => `${x.code}${x.brand ? " (" + x.brand + ")" : ""}: ${fmt(x.cases)} cases × ${x.cpc} = ${fmt(x.cans)} cans${x.ratio != null ? ", " + (x.ratio * 100).toFixed(1) + "% N₂O" : ""}`).join("<br>");
-    det.innerHTML = `<td colspan="12"><div class="detail-grid">
-      ${cell("Items", itemsHtml)}
-      ${cell("Window", `${r.hours.toFixed(1)} h${r.hours < 7.9 ? " (partial meter coverage)" : ""}`)}
-      ${cell("Gas metered", r.totalLb == null ? "—" : `${fmt(r.n2oScf)} scf N₂O + ${fmt(r.n2Scf)} scf N₂<br>${fmt(r.n2oLb)} lb N₂O + ${fmt(r.n2Lb)} lb N₂ = ${fmt(r.totalLb)} lb`)}
-      ${cell("Rates", r.totalLb == null ? "—" : `${fmt(r.lbHr)} lb/hr gas · ${fmt(r.casesHr)} cases/hr`)}
-      ${cell("Filler", r.avgCpm == null ? "no filler data" : `${fmt(r.avgCpm)} cpm average = ${fmt(r.eff)}% of ${FILLER_SETPOINT[r.line]} cpm setpoint<br>≈ ${fmt(r.fillerCans)} cans by filler vs ${fmt(r.cans)} from cases`)}
-      ${cell("Downtime", r.pctDown == null ? "no downtime data" : `filler down ${fmt(r.pctDown)}% of shift · longest stop ${fmt(r.longestStop)} min`)}
-      ${cell("Target", `${fmt(r.targetLb)} lb at ${DEFAULT_TARGET_G} g/can${r.bomLb ? `<br>${fmt(r.bomLb)} lb at BOM standard (${fmt(r.wfBom, 2)}× vs BOM)` : ""}`)}
-      ${cell("Waste", r.totalLb == null ? "—" : `${fmt(r.totalLb - r.targetLb)} lb over target · ${fmt(r.wastePct)}% · ${fmt(r.wf, 2)}×`)}
-      ${r.notes ? cell("Notes", r.notes) : ""}
-    </div></td>`;
-    tb.appendChild(det);
-  });
-  tb.onclick = (e) => { const tr = e.target.closest("tr.run"); if (tr) tr.nextElementSibling.classList.toggle("hidden"); };
+  dashRows = out; renderDashTable();
+
 
   const have = out.filter(r => r.totalLb != null);
   const summ = lines.map(L => { const h = have.filter(r => r.line === L); if (!h.length) return null;

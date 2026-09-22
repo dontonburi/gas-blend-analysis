@@ -87,7 +87,7 @@ table.data tr.detail td { background: #f7f9fb; padding: 0.6rem 1rem 0.8rem; }
 .detail-grid span { color: var(--ink-2); display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
 .detail-grid b { font-weight: 500; }
 
-.chart-wrap { background: var(--panel); padding: 1rem; margin: 0.8rem 0 1.2rem; height: 300px; }
+.chart-wrap { background: var(--panel); padding: 1rem; margin: 0.8rem 0 1.2rem; height: 620px; }
 .stats { display: flex; gap: 2rem; flex-wrap: wrap; margin: 0.4rem 0 1rem; color: var(--ink-2); }
 .stats b { color: var(--ink); font-size: 1.15rem; }
 
@@ -107,3 +107,12 @@ table.data tr.detail td { background: #f7f9fb; padding: 0.6rem 1rem 0.8rem; }
 
 .range label.check { flex-direction: row; align-items: center; gap: 0.4rem; padding-bottom: 0.45rem; color: var(--ink); font-size: 0.95rem; }
 .range label.check input { width: auto; }
+
+.filters { display: flex; gap: 0.8rem; align-items: end; flex-wrap: wrap; margin: 0 0 0.6rem; }
+.filters label { display: flex; flex-direction: column; font-size: 0.85rem; color: var(--ink-2); gap: 0.2rem; }
+.filters input, .filters select { min-width: 110px; }
+.filters .hint { margin: 0 0 0.45rem; }
+table.data th[data-sort] { cursor: pointer; user-select: none; }
+table.data th[data-sort]:hover { color: var(--ink); }
+table.data th[data-sort].asc::after { content: " ▲"; font-size: 0.7em; }
+table.data th[data-sort].desc::after { content: " ▼"; font-size: 0.7em; }
