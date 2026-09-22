@@ -184,3 +184,10 @@ table.mini td.n2o { color: var(--n2o); } table.mini td.n2 { color: var(--n2); } 
 table.data.compact { font-size: 0.9rem; margin-bottom: 0.5rem; }
 table.data.compact th, table.data.compact td { padding: 0.45rem 0.65rem; }
 table.data td small { color: var(--ink-2); }
+
+table.data td.basis { white-space: nowrap; color: var(--ink-2); font-size: 0.85rem; }
+table.mini tr.used td { background: color-mix(in srgb, var(--pale) 35%, #fff); }
+
+table.data td.date { white-space: nowrap; }
+table.mini td small { color: var(--ink-2); font-size: 0.75rem; }
+table.mini td:first-child { white-space: normal; }

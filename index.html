@@ -60,7 +60,7 @@
       <div class="filters">
         <label>Item <input type="text" id="f-item" placeholder="e.g. AD54 or Dunkin"></label>
         <label>Shift <select id="f-shift"><option value="">Any</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
-        <label>Waste factor ≥ <input type="number" id="f-wf" step="0.1" min="0" placeholder="any"></label>
+        <label>Waste % ≥ <input type="number" id="f-wf" step="1" min="0" placeholder="any"></label>
         <label>Efficiency ≤ <input type="number" id="f-eff" step="1" min="0" placeholder="any %"></label>
         <button id="f-clear" class="secondary">Clear</button>
         <span id="f-count" class="hint"></span>
@@ -69,11 +69,11 @@
         <thead><tr>
           <th data-sort="line">Line</th><th data-sort="date">Date</th><th data-sort="shift">Shift</th><th data-sort="items">Items</th><th class="num" data-sort="cases">Cases</th><th class="num" data-sort="cans">Cans</th>
           <th class="num" data-sort="totalLb">Total lb</th><th class="num" data-sort="volPct">N₂O % vol</th><th class="num" data-sort="avgCpm">Avg CPM</th><th class="num" data-sort="eff">Efficiency</th><th class="num" data-sort="gPerCan">g / can</th>
-          <th class="num" data-sort="wf">Waste factor</th>
+          <th class="num" data-sort="wastePct">Waste %</th><th data-sort="basis">Basis</th>
         </tr></thead>
         <tbody></tbody>
       </table>
-      <p class="hint">Click a row for the full breakdown. Efficiency = cans produced ÷ cans the filler could make at setpoint (C 300 cpm, D 250 cpm) over the shift window. Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
+      <p class="hint">Click a row for the full breakdown. Waste % = gas metered over the target: the target is the average gas weight from the paperwork (gas weight checks) for that line, date and shift when it exists, otherwise the items' BOM standard. Efficiency = cans produced ÷ cans the filler could make at setpoint (C 300 cpm, D 250 cpm) over the shift window. Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
     </section>
 
     <!-- ANALYSIS -->
@@ -98,7 +98,7 @@
       <p class="lede" id="an-trend-text"></p>
       <div class="chart-wrap short"><canvas id="an-chart-trend"></canvas></div>
       <table class="data compact" id="an-weeks">
-        <thead><tr><th>Week starting</th><th>Line</th><th class="num">Shifts</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Waste factor</th></tr></thead>
+        <thead><tr><th>Week starting</th><th>Line</th><th class="num">Shifts</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Waste %</th></tr></thead>
         <tbody></tbody>
       </table>
 
@@ -108,15 +108,15 @@
 
       <h2>Start-of-run effect</h2>
       <table class="data compact">
-        <thead><tr><th>Shift position</th><th class="num">Shifts</th><th class="num">Median waste factor</th><th class="num">Median cases/hr</th><th class="num">Median efficiency</th></tr></thead>
+        <thead><tr><th>Shift position</th><th class="num">Shifts</th><th class="num">Median waste %</th><th class="num">Median cases/hr</th><th class="num">Median efficiency</th></tr></thead>
         <tbody id="an-startup"></tbody>
       </table>
 
       <h2>Performance by item</h2>
-      <p class="lede">When several items run in one shift the meter can't separate them, so that shift's gas is split between them in proportion to cans filled ("shared" shifts).</p>
+      <p class="lede">Target per shift comes from the paperwork when gas weight checks exist for that line, date and shift; otherwise from the items' BOM. When several items run in one shift the meter can't separate them, so that shift's gas is split between them in proportion to cans filled ("shared" shifts).</p>
       <div class="chart-wrap short"><canvas id="an-chart-items"></canvas></div>
       <table class="data compact" id="an-items">
-        <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Waste factor</th><th class="num">vs BOM</th></tr></thead>
+        <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Target g</th><th class="num">Waste %</th><th class="num">vs BOM only</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
