@@ -116,6 +116,22 @@
       </table>
       <p class="hint">Stops shorter than 30 minutes are counted in the totals but not listed. Filler samples are ~40 minutes apart, so times are approximate.</p>
 
+      <h2>Confirmed gas-open events</h2>
+      <p class="lede">Events investigated on the floor, grouped by cause. Add new ones as they're confirmed; the flow rate during "forgotten" and "before production" events is the cleanest measure of the fixed bleed.</p>
+      <div class="kpis" id="an-events-kpis"></div>
+      <table class="data compact" id="an-events">
+        <thead><tr><th>Category</th><th>Line</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th>What happened</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <form id="event-form" class="entry">
+        <label>Line <select name="line"><option>C</option><option>D</option></select></label>
+        <label>Start <input type="datetime-local" name="start_ts" required></label>
+        <label>End <input type="datetime-local" name="end_ts" required></label>
+        <label>Category <select name="category"><option value="forgotten_after_schedule">Forgotten after schedule</option><option value="open_before_production">Opened before production</option><option value="changeover">Changeover</option><option value="downtime">Downtime</option><option value="cip">CIP</option><option value="other">Other</option></select></label>
+        <label class="wide">What happened <input type="text" name="cause"></label>
+        <button type="submit" class="primary">Save event</button>
+      </form>
+
       <h2>Gas with no production logged</h2>
       <p class="lede">Shifts where the meter recorded gas flow but no production run is entered for that line, date and shift. Either the cases weren't logged, or the line was sitting with gas up — worth checking, because this gas is outside every waste figure above.</p>
       <table class="data compact" id="an-idle">

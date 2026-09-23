@@ -583,6 +583,18 @@ async function loadAnalysis() {
   const ft = (t) => new Date(t).toLocaleString([], { weekday: "short", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
   $("#an-stops tbody").innerHTML = stopRows.filter(r => r.hrs >= 0.5).map(r => `<tr><td>${r.line}</td><td>${ft(r.start)}</td><td>${new Date(r.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td><td class="num">${fmt(r.hrs, 1)}</td><td class="num">${fmt(r.lb)}</td><td class="num">${fmt(r.lb / r.hrs)}</td><td>${r.where}</td></tr>`).join("") || `<tr><td colspan="7" class="empty">No stops of 30 minutes or more with gas up.</td></tr>`;
 
+  // ----- confirmed events -----
+  const CATS = { forgotten_after_schedule: "Forgotten open after schedule", open_before_production: "Opened before production / gap", changeover: "Changeover with gas open", downtime: "Downtime with gas open", cip: "CIP with gas open", other: "Other" };
+  const events = (await fetchAll("gas_events", "start_ts").catch(() => [])).filter(e => lines.includes(e.line) && e.start_ts.slice(0, 10) >= from.value && e.start_ts.slice(0, 10) <= to.value);
+  events.forEach(e => { const pts = readingsBy[e.line] || []; const a = interp(pts, new Date(e.start_ts).getTime()), b = interp(pts, new Date(e.end_ts).getTime()); e.lb = a && b ? (b.n2o - a.n2o) * D.n2o + (b.n2 - a.n2) * D.n2 : Number(e.gas_lb) || 0; e.hrs = (new Date(e.end_ts) - new Date(e.start_ts)) / 3600e3; });
+  const byCat = {}; events.forEach(e => { const c = byCat[e.category] = byCat[e.category] || { lb: 0, hrs: 0, n: 0 }; c.lb += e.lb; c.hrs += e.hrs; c.n++; });
+  const evTot = events.reduce((x, e) => x + e.lb, 0), gasTot = rows.reduce((x, r) => x + r.totalLb, 0);
+  $("#an-events-kpis").innerHTML = Object.entries(byCat).sort((a, b) => b[1].lb - a[1].lb).map(([c, v]) => `<div class="kpi"><h3>${CATS[c] || c}</h3><div class="big">${fmt(v.lb)} lb<small>${v.n} events · ${fmt(v.hrs, 1)} h · ${fmt(v.lb / v.hrs)} lb/hr</small></div></div>`).join("")
+    + (events.length ? `<div class="kpi" data-line="D"><h3>All confirmed events</h3><div class="big">${fmt(evTot)} lb<small>${fmt(evTot / (gasTot + evTot) * 100, 1)}% of gas used in the period</small></div></div>` : "");
+  const fdt = (t) => new Date(t).toLocaleString([], { weekday: "short", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  $("#an-events tbody").innerHTML = events.sort((a, b) => (a.category > b.category ? 1 : a.category < b.category ? -1 : 0) || b.lb - a.lb).map(e => `<tr><td>${CATS[e.category] || e.category}</td><td>${e.line}</td><td>${fdt(e.start_ts)}</td><td>${fdt(e.end_ts)}</td><td class="num">${fmt(e.hrs, 1)}</td><td class="num">${fmt(e.lb)}</td><td class="num">${fmt(e.lb / e.hrs)}</td><td>${e.cause || ""}</td><td><button class="small danger" data-del="${e.id}">Delete</button></td></tr>`).join("") || `<tr><td colspan="9" class="empty">No confirmed events in this range.</td></tr>`;
+  $("#an-events tbody").onclick = async (e) => { const id = e.target.dataset.del; if (!id || !confirm("Delete this event?")) return; const { error } = await sb.from("gas_events").delete().eq("id", id); if (error) return toast(error.message, true); loadAnalysis(); };
+
   // ----- gas with no production logged -----
   const idleRows = [];
   const runKeys = new Set(allRuns.map(r => `${r.line}|${r.run_date}|${r.shift}`));
@@ -638,6 +650,11 @@ async function loadAnalysis() {
   $("#an-export").onclick = () => csv(itemList.map(o => ({ item: o.code, brand: o.brand, lines: [...o.lines].join(" "), shifts: o.shifts, shared_shifts: o.mixed, cases: o.cases, cans: o.cans, gas_lb_allocated: o.lb, g_per_can: o.lb * G_PER_LB / o.cans, target_g_per_can: o.tgt * G_PER_LB / o.cans, waste_pct: (o.lb - o.tgt) / o.tgt * 100, waste_pct_vs_bom: o.bom ? (o.lb - o.bom) / o.bom * 100 : null })), "analysis_by_item.csv");
 }
 ["#an-line", "#an-item"].forEach(id => $(id).addEventListener("change", loadAnalysis));
+$("#event-form").addEventListener("submit", async (e) => {
+  e.preventDefault(); const row = formData(e.target); row.start_ts = new Date(row.start_ts).toISOString(); row.end_ts = new Date(row.end_ts).toISOString();
+  const { error } = await sb.from("gas_events").insert(row); if (error) return toast(error.message, true);
+  e.target.reset(); toast("Event saved"); loadAnalysis();
+});
 $("#an-refresh").addEventListener("click", loadAnalysis);
 
 /* ---------- conversions ---------- */
