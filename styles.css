@@ -202,3 +202,11 @@ table.data td.warn { color: var(--waste); }
 .note-dot { color: var(--waste); font-size: 0.6rem; vertical-align: middle; cursor: help; }
 .chip { display: inline-block; padding: 0.1rem 0.6rem; border-radius: 999px; font-size: 0.8rem; background: var(--pale); color: var(--ink); white-space: nowrap; }
 .chip-dunkin { background: #ffe0cc; } .chip-silk { background: #e8f0d8; } .chip-internationaldelight { background: var(--pale); } .chip-mcdonalds { background: #fff3c4; } .chip-reddiwip { background: #f3e2f5; }
+
+/* conversions page */
+.calc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 1.5rem; margin: 0.5rem 0 1rem; }
+.calc { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.3rem 1.5rem 1.4rem; }
+.calc h2 { margin: 0 0 0.8rem; }
+.entry.plain { box-shadow: none; padding: 0; margin: 0 0 0.9rem; background: transparent; border-radius: 0; }
+.calc table.data { box-shadow: 0 0 0 1px var(--line); }
+.calc-actions { margin-top: 0.8rem; }

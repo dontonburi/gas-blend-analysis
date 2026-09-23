@@ -570,26 +570,43 @@ async function loadAnalysis() {
 $("#an-refresh").addEventListener("click", loadAnalysis);
 
 /* ---------- conversions ---------- */
+const MW = { n2o: 44.013, n2: 28.014 };
+function massFromVol(v) { return v * D.n2o / (v * D.n2o + (1 - v) * D.n2); }          // N2O fraction by mass from fraction by volume
+function volFromMass(m) { const a = m / MW.n2o, b = (1 - m) / MW.n2; return a / (a + b); } // by volume (= molar) from by mass
 function renderConvert() {
   const f = $("#conv-form"); const tb = $("#conv-out tbody");
   const run = () => {
     const gas = f.elements.gas.value, unit = f.elements.unit.value, amt = Number(f.elements.amount.value) || 0, r = Math.min(1, Math.max(0, Number(f.elements.ratio.value) / 100));
-    f.elements.ratio.disabled = gas !== "blend";
+    $("#conv-ratio-wrap").classList.toggle("hidden", gas !== "blend");
     const line = (name, scf, lbPerScf, cls = "") => { const lb = scf * lbPerScf; return `<tr><td class="${cls}">${name}</td><td class="num">${fmt(scf, 1)}</td><td class="num">${fmt(lb, 2)}</td><td class="num">${fmt(lb * G_PER_LB, 0)}</td><td class="num">${fmt(lb * G_PER_LB / 1000, 3)}</td></tr>`; };
     const toScf = (a, u, d) => u === "scf" ? a : u === "lb" ? a / d : u === "g" ? a / G_PER_LB / d : a * 1000 / G_PER_LB / d;
     let html = "";
     if (gas === "n2o") html = line("N₂O", toScf(amt, unit, D.n2o), D.n2o, "n2o");
     else if (gas === "n2") html = line("N₂", toScf(amt, unit, D.n2), D.n2, "n2");
     else {
-      const dBlend = r * D.n2o + (1 - r) * D.n2;               // lb per scf of blend
-      const scfTot = toScf(amt, unit, dBlend);
-      html = line("Blend total", scfTot, dBlend) + line(`N₂O (${(r * 100).toFixed(1)}% vol)`, scfTot * r, D.n2o, "n2o") + line(`N₂ (${((1 - r) * 100).toFixed(1)}% vol)`, scfTot * (1 - r), D.n2, "n2");
-      const mN2O = r * D.n2o / dBlend * 100;
-      html += `<tr class="muted"><td colspan="5">By mass this blend is ${mN2O.toFixed(1)}% N₂O / ${(100 - mN2O).toFixed(1)}% N₂ — ${fmt(dBlend, 4)} lb per scf</td></tr>`;
+      const dBlend = r * D.n2o + (1 - r) * D.n2; const scfTot = toScf(amt, unit, dBlend);
+      html = line(`N₂O (${(r * 100).toFixed(1)}% vol)`, scfTot * r, D.n2o, "n2o") + line(`N₂ (${((1 - r) * 100).toFixed(1)}% vol)`, scfTot * (1 - r), D.n2, "n2") + `<tr class="total">` + line("Blend total", scfTot, dBlend).slice(4);
+      html += `<tr class="muted"><td colspan="5">By mass this blend is ${(massFromVol(r) * 100).toFixed(1)}% N₂O · ${fmt(dBlend, 4)} lb per scf of blend</td></tr>`;
     }
     tb.innerHTML = html;
   };
   f.oninput = run; run();
+
+  const bf = $("#bom-form"); const bt = $("#bom-out tbody"); let last = null;
+  const runBom = () => {
+    const g = Number(bf.elements.gcan.value) || 0, cans = Math.max(1, Number(bf.elements.cans.value) || 12), pct = Math.min(1, Math.max(0, Number(bf.elements.pct.value) / 100)), basis = bf.elements.basis.value;
+    const mN2O = basis === "vol" ? massFromVol(pct) : pct, vN2O = basis === "vol" ? pct : volFromMass(pct);
+    const gO = g * mN2O, gN = g * (1 - mN2O), lbO = gO * cans / G_PER_LB, lbN = gN * cans / G_PER_LB;
+    last = { lbO, lbN };
+    bt.innerHTML = `<tr><td class="n2o">N₂O</td><td class="num"><b>${gO.toFixed(2)}</b></td><td class="num">${(mN2O * 100).toFixed(1)}%</td><td class="num">${(vN2O * 100).toFixed(1)}%</td><td class="num"><b>${lbO.toFixed(4)}</b></td></tr>
+      <tr><td class="n2">N₂</td><td class="num"><b>${gN.toFixed(2)}</b></td><td class="num">${((1 - mN2O) * 100).toFixed(1)}%</td><td class="num">${((1 - vN2O) * 100).toFixed(1)}%</td><td class="num"><b>${lbN.toFixed(4)}</b></td></tr>
+      <tr class="total"><td>Total</td><td class="num">${g.toFixed(2)}</td><td></td><td></td><td class="num">${(lbO + lbN).toFixed(4)}</td></tr>`;
+    $("#bom-note").textContent = basis === "vol"
+      ? `A machine setpoint of ${(pct * 100).toFixed(1)}% by volume puts ${(mN2O * 100).toFixed(1)}% of the gas mass in as N₂O. BOM lines are lb per case of ${cans} cans, no scrap allowance.`
+      : `A setpoint of ${(pct * 100).toFixed(1)}% by mass corresponds to ${(vN2O * 100).toFixed(1)}% by volume on a blender that meters scf. BOM lines are lb per case of ${cans} cans, no scrap allowance.`;
+  };
+  bf.oninput = runBom; runBom();
+  $("#bom-copy").onclick = () => { if (!last) return; navigator.clipboard?.writeText(`N2O ${last.lbO.toFixed(4)} lb/case\nN2 ${last.lbN.toFixed(4)} lb/case`).then(() => toast("BOM values copied")); };
 }
 
 boot();
