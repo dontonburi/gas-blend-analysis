@@ -243,39 +243,43 @@
     <!-- CONVERSIONS -->
     <section id="page-convert" class="page hidden">
       <header class="page-head"><h1>Conversions</h1></header>
-      <p class="lede">The meter reports standard cubic feet (scf): a mass measurement expressed as the volume the gas would occupy at 60°F and 14.7 psia. Ratios of scf are ratios by volume; the BOM is in pounds, so mass. These calculators move between the two.</p>
 
-      <div class="calc-grid">
-        <section class="calc">
-          <h2>1 · scf ⇄ weight</h2>
-          <form id="conv-form" class="entry plain" onsubmit="return false">
-            <label>Gas <select name="gas"><option value="n2o">N₂O</option><option value="n2">N₂</option><option value="blend">Blend</option></select></label>
-            <label>Amount <input type="number" name="amount" step="any" value="1000"></label>
+      <div class="split">
+        <div class="split-card">
+          <p class="eyebrow"><i></i>scf to weight</p>
+          <h2>What does the meter's number weigh?</h2>
+          <p>The blender reports standard cubic feet. One scf of N₂O is 0.116 lb; one scf of N₂ is 0.0739 lb. Enter a quantity in any unit and the calculator gives the others — for a blend, it also splits the total between the two gases using the volume ratio the blender runs.</p>
+          <form id="conv-form" class="fields" onsubmit="return false">
+            <label>Gas <select name="gas"><option value="blend">Blend</option><option value="n2o">N₂O only</option><option value="n2">N₂ only</option></select></label>
+            <label>Amount <input type="number" name="amount" step="any" value="1000" inputmode="decimal"></label>
             <label>Unit <select name="unit"><option value="scf">scf</option><option value="lb">lb</option><option value="g">g</option><option value="kg">kg</option></select></label>
-            <label id="conv-ratio-wrap">N₂O % by volume <input type="number" name="ratio" step="0.1" min="0" max="100" value="85"></label>
+            <label id="conv-ratio-wrap">N₂O % by volume <input type="number" name="ratio" step="0.1" min="0" max="100" value="85" inputmode="decimal"></label>
+            <button type="submit" class="primary">Calculate</button>
           </form>
-          <table class="data compact" id="conv-out">
-            <thead><tr><th></th><th class="num">scf</th><th class="num">lb</th><th class="num">g</th><th class="num">kg</th></tr></thead>
-            <tbody></tbody>
-          </table>
-          <p class="hint">N₂O 0.1160 lb/scf · N₂ 0.0739 lb/scf. For a blend, the amount is the total and the split follows the volume ratio.</p>
-        </section>
+        </div>
+        <div class="split-result" id="conv-result">
+          <p class="eyebrow"><i></i>Result</p>
+          <div id="conv-out"></div>
+        </div>
+      </div>
 
-        <section class="calc">
-          <h2>2 · Fill weight → gas per can and BOM per case</h2>
-          <form id="bom-form" class="entry plain" onsubmit="return false">
-            <label>Total gas per can (g) <input type="number" name="gcan" step="0.01" min="0" value="4.87"></label>
-            <label>Cans per case <input type="number" name="cans" step="1" min="1" value="12"></label>
-            <label>Machine setpoint, N₂O % <input type="number" name="pct" step="0.1" min="0" max="100" value="85"></label>
+      <div class="split">
+        <div class="split-card">
+          <p class="eyebrow"><i></i>Fill weight to BOM</p>
+          <h2>What should the BOM say?</h2>
+          <p>Start from the gas that actually goes into a can (the gas weight check average), the case size, and the N₂O percentage set on the blender. The calculator works out the grams of each gas per can and the pounds per case to enter on the BOM lines. Choose whether the setpoint is meant by volume, which is how the blender meters it, or by mass.</p>
+          <form id="bom-form" class="fields" onsubmit="return false">
+            <label>Total gas per can (g) <input type="number" name="gcan" step="0.01" min="0" value="4.87" inputmode="decimal"></label>
+            <label>Cans per case <input type="number" name="cans" step="1" min="1" value="12" inputmode="numeric"></label>
+            <label>Machine setpoint, N₂O % <input type="number" name="pct" step="0.1" min="0" max="100" value="85" inputmode="decimal"></label>
             <label>Setpoint is by <select name="basis"><option value="vol">volume (blender scf)</option><option value="mass">mass</option></select></label>
+            <button type="submit" class="primary">Calculate</button>
           </form>
-          <table class="data compact" id="bom-out">
-            <thead><tr><th></th><th class="num">g per can</th><th class="num">% by mass</th><th class="num">% by volume</th><th class="num">lb per case</th></tr></thead>
-            <tbody></tbody>
-          </table>
-          <p class="hint" id="bom-note"></p>
-          <div class="calc-actions"><button id="bom-copy" class="secondary small">Copy BOM values</button></div>
-        </section>
+        </div>
+        <div class="split-result" id="bom-result">
+          <p class="eyebrow"><i></i>Result</p>
+          <div id="bom-out"></div>
+        </div>
       </div>
 
       <h2>Reference</h2>
@@ -286,7 +290,7 @@
           <tr><td class="n2">N₂ (nitrogen, 28.01 g/mol)</td><td class="num">0.0739</td><td class="num">33.5</td><td class="num">13.5</td><td class="num">29.8</td></tr>
         </tbody>
       </table>
-      <p class="hint">Because N₂O is heavier, a blend that is 85% N₂O by volume is 89.9% by mass; 78% by volume is 84.8% by mass; 70% by volume is 78.6%; 63.2% by volume is 72.9%.</p>
+      <p class="hint">Because N₂O is heavier, a blend that is 85% N₂O by volume is 89.9% by mass; 78% by volume is 84.8%; 70% by volume is 78.6%; 63.2% by volume is 72.9%.</p>
     </section>
 
   </main>
