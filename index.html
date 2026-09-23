@@ -91,10 +91,22 @@
       </header>
       <p class="lede" id="an-count"></p>
 
-      <h2>Performance by line</h2>
+      <div class="an-layout">
+      <nav class="an-index" aria-label="Analysis sections">
+        <a href="#an-sec-lines" data-target="an-sec-lines">By line</a>
+        <a href="#an-sec-trend" data-target="an-sec-trend">Trend</a>
+        <a href="#an-sec-fixed" data-target="an-sec-fixed">Fixed vs per can</a>
+        <a href="#an-sec-stops" data-target="an-sec-stops">Filler stopped</a>
+        <a href="#an-sec-events" data-target="an-sec-events">Events</a>
+        <a href="#an-sec-nolog" data-target="an-sec-nolog">Not logged</a>
+        <a href="#an-sec-start" data-target="an-sec-start">Start of run</a>
+        <a href="#an-sec-items" data-target="an-sec-items">By item</a>
+      </nav>
+      <div class="an-body">
+      <h2 id="an-sec-lines">Performance by line</h2>
       <div class="kpis" id="an-lines"></div>
 
-      <h2>Is it improving?</h2>
+      <h2 id="an-sec-trend">Is it improving?</h2>
       <p class="lede" id="an-trend-text"></p>
       <div class="chart-wrap short"><canvas id="an-chart-trend"></canvas></div>
       <table class="data compact" id="an-weeks">
@@ -102,12 +114,12 @@
         <tbody></tbody>
       </table>
 
-      <h2>Where the gas goes: fixed vs per can</h2>
+      <h2 id="an-sec-fixed">Where the gas goes: fixed vs per can</h2>
       <p class="lede">Each dot is a full shift, plotted by its actual production rate. The dashed line is the best fit — where it meets the left axis is gas used per hour regardless of output (purge, vent, leaks, idle); its slope is gas per can actually filled. Click a dot to see that shift; click a legend entry to hide a line.</p>
       <div class="chart-wrap short"><canvas id="an-chart-fixed"></canvas></div>
       <div id="an-fixed-detail" class="pick hidden"></div>
 
-      <h2>Gas up with the filler stopped</h2>
+      <h2 id="an-sec-stops">Gas up with the filler stopped</h2>
       <p class="lede">Periods when the meter was flowing but the filler was not running — before the first can, during stops, and after the last can. Gas flowing in these windows is the system being left open; the flow rate during them is a direct measurement of the fixed bleed.</p>
       <div class="kpis" id="an-idle-kpis"></div>
       <table class="data compact" id="an-stops">
@@ -116,7 +128,7 @@
       </table>
       <p class="hint">Stops shorter than 30 minutes are counted in the totals but not listed. Filler samples are ~40 minutes apart, so times are approximate.</p>
 
-      <h2>Confirmed gas-open events</h2>
+      <h2 id="an-sec-events">Confirmed gas-open events</h2>
       <p class="lede">Events investigated on the floor, grouped by cause. Add new ones as they're confirmed; the flow rate during "forgotten" and "before production" events is the cleanest measure of the fixed bleed.</p>
       <div class="kpis" id="an-events-kpis"></div>
       <table class="data compact" id="an-events">
@@ -132,7 +144,7 @@
         <button type="submit" class="primary">Save event</button>
       </form>
 
-      <h2>Gas with no production logged</h2>
+      <h2 id="an-sec-nolog">Gas with no production logged</h2>
       <p class="lede">Shifts where the meter recorded gas flow but no production run is entered for that line, date and shift. Either the cases weren't logged, or the line was sitting with gas up — worth checking, because this gas is outside every waste figure above.</p>
       <table class="data compact" id="an-idle">
         <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Meter coverage</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th>Likely</th></tr></thead>
@@ -140,13 +152,13 @@
       </table>
       <p class="lede" id="an-idle-text"></p>
 
-      <h2>Start-of-run effect</h2>
+      <h2 id="an-sec-start">Start-of-run effect</h2>
       <table class="data compact">
         <thead><tr><th>Shift position</th><th class="num">Shifts</th><th class="num">Median waste %</th><th class="num">Median cases/hr</th><th class="num">Median efficiency</th></tr></thead>
         <tbody id="an-startup"></tbody>
       </table>
 
-      <h2>Performance by item</h2>
+      <h2 id="an-sec-items">Performance by item</h2>
       <p class="lede">Target per shift comes from the paperwork when gas weight checks exist for that line, date and shift; otherwise from the items' BOM. When several items run in one shift the meter can't separate them, so that shift's gas is split between them in proportion to cans filled ("shared" shifts).</p>
       <div class="chart-wrap short"><canvas id="an-chart-items"></canvas></div>
       <p class="hint">Click an item — in the chart or the table — to list every shift it ran.</p>
@@ -154,6 +166,8 @@
         <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Target g</th><th class="num">Waste %</th><th class="num">vs BOM only</th></tr></thead>
         <tbody></tbody>
       </table>
+      </div>
+      </div>
     </section>
 
     <!-- RUNS -->

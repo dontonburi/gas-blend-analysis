@@ -85,7 +85,7 @@ function navigate(page) {
   const sec = $(`#page-${page}`); sec.classList.remove("enter"); void sec.offsetWidth; sec.classList.add("enter");
   loaders[page]();
 }
-window.addEventListener("hashchange", () => navigate(location.hash.replace("#", "")));
+window.addEventListener("hashchange", () => { const hsh = location.hash.replace("#", ""); if (!hsh.startsWith("an-sec-")) navigate(hsh); });
 
 /* ---------- items ---------- */
 async function loadItems() { items = await fetchAll("items", "code"); }
@@ -656,6 +656,9 @@ $("#event-form").addEventListener("submit", async (e) => {
   e.target.reset(); toast("Event saved"); loadAnalysis();
 });
 $("#an-refresh").addEventListener("click", loadAnalysis);
+$$(".an-index a").forEach(link => link.addEventListener("click", (e) => { e.preventDefault(); const t = $("#" + link.dataset.target); if (!t) return; const y = t.getBoundingClientRect().top + window.scrollY - 90; window.scrollTo({ top: y, behavior: "smooth" }); }));
+const anObserver = new IntersectionObserver((entries) => { entries.forEach(en => { if (en.isIntersecting) $$(".an-index a").forEach(l => l.classList.toggle("active", l.dataset.target === en.target.id)); }); }, { rootMargin: "-25% 0px -65% 0px" });
+$$("#page-analysis h2[id]").forEach(h2 => anObserver.observe(h2));
 
 /* ---------- conversions ---------- */
 const MW = { n2o: 44.013, n2: 28.014 };
