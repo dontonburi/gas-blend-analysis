@@ -249,14 +249,20 @@ async function loadChecks() {
     const wt = Number(c.weight_g); if (wt > 0) g.weights.push(wt);
     g.gassers.add(c.gasser); if (c.check_time) g.times.add(c.check_time); if (c.initials) g.initials.add(c.initials); if (c.correction_g != null && c.correction_g !== "") g.corr++;
   });
-  const itemsFor = (line, date, shift) => [...new Set(runs.filter(r => r.line === line && r.run_date === date && r.shift === shift).map(r => r.item_code).filter(Boolean))].join(" + ") || "<span class='empty'>no run logged</span>";
+  const runsFor = (line, date, shift) => runs.filter(r => r.line === line && r.run_date === date && r.shift === shift && r.item_code);
+  const itemsFor = (line, date, shift) => [...new Set(runsFor(line, date, shift).map(r => r.item_code))].join(" + ") || "<span class='empty'>no run logged</span>";
+  const bomFor = (line, date, shift) => { // can-weighted BOM g/can across the items run that shift
+    let cans = 0, g = 0; runsFor(line, date, shift).forEach(r => { const it = items.find(i => i.code === r.item_code); if (it?.bom_gas_g_per_can) { const n = r.cases * (r.cans_per_case || 12); cans += n; g += n * it.bom_gas_g_per_can; } });
+    return cans ? g / cans : null; };
   const tb = $("#checks-table tbody"); tb.innerHTML = "";
   Object.values(groups).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line)).forEach(g => {
     const ws = [...g.weights].sort((a, b) => a - b); const n = ws.length; if (!n) return;
     const m = ws.reduce((a, b) => a + b, 0) / n, sd = Math.sqrt(ws.reduce((a, b) => a + (b - m) ** 2, 0) / n);
     const tr = document.createElement("tr");
+    const bom = bomFor(g.line, g.date, g.shift); const dev = bom ? (m - bom) / bom * 100 : null;
     tr.innerHTML = `<td>${g.line}</td><td class="date">${g.date}</td><td>${g.shift}</td><td>${itemsFor(g.line, g.date, g.shift)}</td><td>${[...g.gassers].sort().join(", ")}</td><td>${[...g.times].sort().join(", ")}</td>
-      <td class="num">${n}</td><td class="num"><b>${fmt(m, 2)}</b></td><td class="num">${fmt(ws[Math.floor(n / 2)], 2)}</td><td class="num">${fmt(sd, 2)}</td><td class="num">${fmt(ws[0], 1)} – ${fmt(ws[n - 1], 1)}</td><td class="num">${g.corr || ""}</td>`;
+      <td class="num">${n}</td><td class="num"><b>${fmt(m, 2)}</b></td><td class="num">${fmt(ws[Math.floor(n / 2)], 2)}</td><td class="num">${fmt(sd, 2)}</td><td class="num">${fmt(ws[0], 1)} – ${fmt(ws[n - 1], 1)}</td>
+      <td class="num">${bom ? fmt(bom, 2) : "—"}</td><td class="num ${dev == null ? "" : dev > 0 ? "over" : "under"}">${dev == null ? "—" : (dev > 0 ? "+" : "") + fmt(dev) + "%"}</td><td class="num">${g.corr || ""}</td>`;
     tb.appendChild(tr);
   });
   $("#checks-export").onclick = () => csv(rows, "gas_weight_checks.csv");

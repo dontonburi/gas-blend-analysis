@@ -191,3 +191,5 @@ table.mini tr.used td { background: color-mix(in srgb, var(--pale) 35%, #fff); }
 table.data td.date { white-space: nowrap; }
 table.mini td small { color: var(--ink-2); font-size: 0.75rem; }
 table.mini td:first-child { white-space: normal; }
+table.data td.over { color: var(--waste); font-weight: 600; }
+table.data td.under { color: var(--primary); font-weight: 600; }

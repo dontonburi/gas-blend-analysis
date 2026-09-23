@@ -198,10 +198,10 @@
       <div class="stats" id="checks-stats"></div>
       <h2>By shift</h2>
       <table id="checks-table" class="data compact">
-        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item(s) run</th><th>Gasser</th><th>Check times</th><th class="num">Readings</th><th class="num">Avg g</th><th class="num">Median g</th><th class="num">Std dev</th><th class="num">Range g</th><th class="num">Corrected</th></tr></thead>
+        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item(s) run</th><th>Gasser</th><th>Check times</th><th class="num">Readings</th><th class="num">Avg g</th><th class="num">Median g</th><th class="num">Std dev</th><th class="num">Range g</th><th class="num">BOM g/can</th><th class="num">vs BOM</th><th class="num">Corrected</th></tr></thead>
         <tbody></tbody>
       </table>
-      <p class="hint">A check is assigned to a shift by its time (07:00–15:00 = 1, 15:00–23:00 = 2, otherwise 3; checks before 07:00 count toward the previous day's third shift). "Corrected" counts heads where the operator wrote a correction. Individual readings aren't listed — use Export CSV for the full table.</p>
+      <p class="hint">A check is assigned to a shift by its time (07:00–15:00 = 1, 15:00–23:00 = 2, otherwise 3; checks before 07:00 count toward the previous day's third shift). "vs BOM" is the measured average against the BOM gas standard for the item(s) run that shift — positive means cans are getting more gas than the standard, negative less. "Corrected" counts heads where the operator wrote a correction. Individual readings aren't listed — use Export CSV for the full table.</p>
     </section>
 
     <!-- ITEMS -->
