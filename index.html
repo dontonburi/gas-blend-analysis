@@ -103,8 +103,26 @@
       </table>
 
       <h2>Where the gas goes: fixed vs per can</h2>
-      <p class="lede">Each dot is a full shift. The dashed line is the best fit — where it meets the left axis is gas used per hour regardless of output (purge, vent, leaks, idle); its slope is gas per can actually filled.</p>
+      <p class="lede">Each dot is a full shift, plotted by its actual production rate. The dashed line is the best fit — where it meets the left axis is gas used per hour regardless of output (purge, vent, leaks, idle); its slope is gas per can actually filled. Click a dot to see that shift; click a legend entry to hide a line.</p>
       <div class="chart-wrap short"><canvas id="an-chart-fixed"></canvas></div>
+      <div id="an-fixed-detail" class="pick hidden"></div>
+
+      <h2>Gas up with the filler stopped</h2>
+      <p class="lede">Periods when the meter was flowing but the filler was not running — before the first can, during stops, and after the last can. Gas flowing in these windows is the system being left open; the flow rate during them is a direct measurement of the fixed bleed.</p>
+      <div class="kpis" id="an-idle-kpis"></div>
+      <table class="data compact" id="an-stops">
+        <thead><tr><th>Line</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th>Where in the run</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="hint">Stops shorter than 30 minutes are counted in the totals but not listed. Filler samples are ~40 minutes apart, so times are approximate.</p>
+
+      <h2>Gas with no production logged</h2>
+      <p class="lede">Shifts where the meter recorded gas flow but no production run is entered for that line, date and shift. Either the cases weren't logged, or the line was sitting with gas up — worth checking, because this gas is outside every waste figure above.</p>
+      <table class="data compact" id="an-idle">
+        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Meter coverage</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th>Likely</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="lede" id="an-idle-text"></p>
 
       <h2>Start-of-run effect</h2>
       <table class="data compact">
@@ -115,6 +133,7 @@
       <h2>Performance by item</h2>
       <p class="lede">Target per shift comes from the paperwork when gas weight checks exist for that line, date and shift; otherwise from the items' BOM. When several items run in one shift the meter can't separate them, so that shift's gas is split between them in proportion to cans filled ("shared" shifts).</p>
       <div class="chart-wrap short"><canvas id="an-chart-items"></canvas></div>
+      <p class="hint">Click an item — in the chart or the table — to list every shift it ran.</p>
       <table class="data compact" id="an-items">
         <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Target g</th><th class="num">Waste %</th><th class="num">vs BOM only</th></tr></thead>
         <tbody></tbody>

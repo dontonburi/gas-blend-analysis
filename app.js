@@ -481,7 +481,11 @@ async function loadAnalysis() {
   const from = $("#an-from"), to = $("#an-to");
   if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || "2026-08-01"; to.value = localDate(new Date()); }
   const lineSel = $("#an-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
-  const all = (await computeShiftRows(lines, from.value, to.value)).filter(r => r.totalLb != null && r.targetLb);
+  const [allShifts, allRuns, rawR, rawF] = await Promise.all([computeShiftRows(lines, from.value, to.value), fetchAll("production_runs", "run_date"), fetchAll("gas_readings", "ts"), fetchAll("filler_readings", "ts").catch(() => [])]);
+  const all = allShifts.filter(r => r.totalLb != null && r.targetLb);
+  const readingsBy = {}, fillerBy = {};
+  rawR.forEach(r => (readingsBy[r.line] = readingsBy[r.line] || []).push({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
+  rawF.forEach(r => (fillerBy[r.line] = fillerBy[r.line] || []).push({ t: new Date(r.ts).getTime(), cpm: Number(r.cpm) }));
   // item filter options
   const itemSel = $("#an-item"); const cur = itemSel.value;
   const codes = [...new Set(all.flatMap(r => r.itemRows.map(x => x.code)))].sort();
@@ -524,7 +528,12 @@ async function loadAnalysis() {
     o.cases += x.cases; o.cans += x.cans; o.lb += r.totalLb * share; o.tgt += r.targetLb * share; o.bom += it.bom_gas_g_per_can ? x.cans * it.bom_gas_g_per_can / G_PER_LB : 0;
   }));
   const itemList = Object.values(byItem).sort((a, b) => b.lb - a.lb);
-  $("#an-items tbody").innerHTML = itemList.map(o => `<tr><td>${o.code}</td><td>${o.brand || "—"}</td><td>${[...o.lines].join(", ")}</td><td class="num">${o.shifts}${o.mixed ? ` <small>(${o.mixed} shared)</small>` : ""}</td><td class="num">${fmt(o.cases)}</td><td class="num">${fmt(o.cans)}</td><td class="num">${fmt(o.lb)}</td><td class="num">${fmt(o.lb * G_PER_LB / o.cans, 1)}</td><td class="num">${fmt(o.tgt * G_PER_LB / o.cans, 2)}</td><td class="num waste">${fmt((o.lb - o.tgt) / o.tgt * 100)}%</td><td class="num">${o.bom ? fmt((o.lb - o.bom) / o.bom * 100) + "%" : "—"}</td></tr>`).join("");
+  const itemShifts = (code) => rows.filter(r => r.itemRows.some(x => x.code === code)).sort((x, y) => x.date.localeCompare(y.date) || x.shift - y.shift).map(r => { const x = r.itemRows.find(i => i.code === code); const share = r.cans ? x.cans / r.cans : 0; return { r, x, share, lb: r.totalLb * share, tgt: r.targetLb * share }; });
+  const drill = (code) => { const list = itemShifts(code); return `<table class="mini"><thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Ran with</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Share of shift</th><th class="num">Gas lb (alloc.)</th><th class="num">g / can</th><th class="num">Waste %</th><th>Basis</th><th class="num">Cans/min</th><th class="num">Efficiency</th></tr></thead><tbody>`
+    + list.map(({ r, x, share, lb, tgt }) => `<tr><td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.itemRows.filter(i => i.code !== code).map(i => i.code).join(" + ") || "—"}</td><td class="num">${fmt(x.cases)}</td><td class="num">${fmt(x.cans)}</td><td class="num">${fmt(share * 100)}%</td><td class="num">${fmt(lb)}</td><td class="num">${fmt(lb * G_PER_LB / x.cans, 1)}</td><td class="num waste">${tgt ? fmt((lb - tgt) / tgt * 100) + "%" : "—"}</td><td>${r.basis || "—"}</td><td class="num">${fmt(r.cans / r.hours / 60, 1)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td></tr>`).join("") + `</tbody></table>`; };
+  $("#an-items tbody").innerHTML = itemList.map(o => `<tr class="run" data-code="${o.code}"><td><b>${o.code}</b></td><td>${o.brand || "—"}</td><td>${[...o.lines].join(", ")}</td><td class="num">${o.shifts}${o.mixed ? ` <small>(${o.mixed} shared)</small>` : ""}</td><td class="num">${fmt(o.cases)}</td><td class="num">${fmt(o.cans)}</td><td class="num">${fmt(o.lb)}</td><td class="num">${fmt(o.lb * G_PER_LB / o.cans, 1)}</td><td class="num">${fmt(o.tgt * G_PER_LB / o.cans, 2)}</td><td class="num waste">${fmt((o.lb - o.tgt) / o.tgt * 100)}%</td><td class="num">${o.bom ? fmt((o.lb - o.bom) / o.bom * 100) + "%" : "—"}</td></tr><tr class="detail hidden" data-for="${o.code}"><td colspan="11"><div class="run-detail one">${drill(o.code)}</div></td></tr>`).join("");
+  const openItem = (code, scroll) => { const det = $(`#an-items tr.detail[data-for="${code}"]`); if (!det) return; det.classList.toggle("hidden"); if (scroll && !det.classList.contains("hidden")) det.scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+  $("#an-items tbody").onclick = (e) => { const tr = e.target.closest("tr.run"); if (tr) openItem(tr.dataset.code); };
 
   // ----- trend over time: weekly by line + improvement test -----
   const weeks = {}; rows.forEach(r => { const k = `${weekStart(r.date)}|${r.line}`; (weeks[k] = weeks[k] || { week: weekStart(r.date), line: r.line, lb: 0, tgt: 0, cans: 0, n: 0 }); weeks[k].lb += r.totalLb; weeks[k].tgt += r.targetLb; weeks[k].cans += r.cans; weeks[k].n++; });
@@ -548,22 +557,84 @@ async function loadAnalysis() {
   $("#an-startup").innerHTML = `<tr><td>First shift of a run</td><td class="num">${pos.start.length}</td><td class="num waste">${fmt(med(pos.start.map(r => r.wastePct)))}%</td><td class="num">${fmt(med(pos.start.map(r => r.casesHr)))}</td><td class="num">${fmt(med(pos.start.map(r => r.eff).filter(x => x != null)))}%</td></tr>
     <tr><td>Later shifts</td><td class="num">${pos.later.length}</td><td class="num waste">${fmt(med(pos.later.map(r => r.wastePct)))}%</td><td class="num">${fmt(med(pos.later.map(r => r.casesHr)))}</td><td class="num">${fmt(med(pos.later.map(r => r.eff).filter(x => x != null)))}%</td></tr>`;
 
+  // ----- gas up with filler stopped (uses filler samples as the timeline) -----
+  const stopRows = []; const stopKpi = [];
+  lines.forEach(L => {
+    const pts = readingsBy[L] || [], fl = (fillerBy[L] || []).filter(p => p.t >= new Date(from.value).getTime() && p.t < new Date(to.value).getTime() + 864e5);
+    if (pts.length < 2 || fl.length < 2) return;
+    const lbAt = (t) => { const v = interp(pts, t); return v ? v.n2o * D.n2o + v.n2 * D.n2 : null; };
+    let stopLb = 0, stopH = 0, runLb = 0, runH = 0, cur = null; const events = [];
+    for (let i = 0; i < fl.length - 1; i++) {
+      const s = fl[i].t, e = fl[i + 1].t, a = lbAt(s), b = lbAt(e); if (a == null || b == null) continue;
+      const lb = b - a, hrs = (e - s) / 3600e3; if (hrs > 2 || lb < 1) { if (cur) { events.push(cur); cur = null; } continue; }   // gas off (or data gap)
+      if (fl[i].cpm < 20) { stopLb += lb; stopH += hrs; if (!cur) cur = { start: s, end: e, lb, hrs, wasRunningBefore: i > 0 && fl[i - 1].cpm >= 20 && lbAt(fl[i - 1].t) != null && lbAt(s) - lbAt(fl[i - 1].t) >= 1 }; else { cur.end = e; cur.lb += lb; cur.hrs += hrs; } }
+      else { runLb += lb; runH += hrs; if (cur) { cur.runsAfter = true; events.push(cur); cur = null; } }
+    }
+    if (cur) events.push(cur);
+    events.forEach(ev => stopRows.push({ line: L, ...ev, where: ev.wasRunningBefore && ev.runsAfter ? "mid-run stop" : ev.runsAfter ? "before first can" : ev.wasRunningBefore ? "after last can" : "gas up, no production" }));
+    stopKpi.push({ line: L, stopLb, stopH, runLb, runH, n: events.length });
+  });
+  $("#an-idle-kpis").innerHTML = stopKpi.map(k => `<div class="kpi" data-line="${k.line}"><h3>${k.line} Line</h3><div class="big">${fmt(k.stopLb)} lb<small>gas with filler stopped</small></div><dl>
+      <dt>Hours stopped, gas up</dt><dd>${fmt(k.stopH, 1)} h <small>${k.n} events</small></dd>
+      <dt>Flow while stopped</dt><dd>${k.stopH ? fmt(k.stopLb / k.stopH) : "—"} lb/hr <small>= fixed bleed</small></dd>
+      <dt>Flow while running</dt><dd>${k.runH ? fmt(k.runLb / k.runH) : "—"} lb/hr</dd>
+      <dt>Share of gas</dt><dd>${fmt(k.stopLb / (k.stopLb + k.runLb) * 100, 1)}%</dd></dl></div>`).join("") || "<p class='hint'>Needs filler readings in this range.</p>";
+  stopRows.sort((x, y) => y.lb - x.lb);
+  const ft = (t) => new Date(t).toLocaleString([], { weekday: "short", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  $("#an-stops tbody").innerHTML = stopRows.filter(r => r.hrs >= 0.5).map(r => `<tr><td>${r.line}</td><td>${ft(r.start)}</td><td>${new Date(r.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td><td class="num">${fmt(r.hrs, 1)}</td><td class="num">${fmt(r.lb)}</td><td class="num">${fmt(r.lb / r.hrs)}</td><td>${r.where}</td></tr>`).join("") || `<tr><td colspan="7" class="empty">No stops of 30 minutes or more with gas up.</td></tr>`;
+
+  // ----- gas with no production logged -----
+  const idleRows = [];
+  const runKeys = new Set(allRuns.map(r => `${r.line}|${r.run_date}|${r.shift}`));
+  lines.forEach(L => {
+    const pts = readingsBy[L] || []; if (!pts.length) return;
+    const fill = fillerBy[L] || [];
+    let t = new Date(from.value + "T00:00:00");
+    const endT = new Date(to.value + "T00:00:00"); endT.setDate(endT.getDate() + 1);
+    for (; t < endT; t.setDate(t.getDate() + 1)) {
+      const date = localDate(t);
+      [1, 2, 3].forEach(sh => {
+        if (runKeys.has(`${L}|${date}|${sh}`)) return;
+        const [s, e] = shiftWindow(date, sh); const first = Math.max(s, pts[0].t), last = Math.min(e, pts[pts.length - 1].t); if (last <= first) return;
+        const a = interp(pts, first), b = interp(pts, last); if (!a || !b) return;
+        const n2o = b.n2o - a.n2o, n2 = b.n2 - a.n2, lb = n2o * D.n2o + n2 * D.n2; if (lb < 10) return;
+        const hrs = (last - first) / 3600e3; const f = fill.filter(p => p.t >= s && p.t < e).map(p => p.cpm); const cpm = f.length ? f.reduce((x, y) => x + y, 0) / f.length : null;
+        idleRows.push({ line: L, date, shift: sh, cov: `${new Date(first).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${new Date(last).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, lb, lbHr: lb / hrs, vol: n2o / (n2o + n2) * 100, cpm, likely: cpm != null && cpm > 30 ? "production not logged (filler was running)" : "line idle with gas up" });
+      });
+    }
+  });
+  idleRows.sort((x, y) => x.date.localeCompare(y.date) || x.shift - y.shift || x.line.localeCompare(y.line));
+  $("#an-idle tbody").innerHTML = idleRows.map(r => `<tr><td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.cov}</td><td class="num">${fmt(r.lb)}</td><td class="num">${fmt(r.lbHr)}</td><td class="num">${fmt(r.vol, 1)}%</td><td class="num">${r.cpm == null ? "—" : fmt(r.cpm)}</td><td>${r.likely}</td></tr>`).join("") || `<tr><td colspan="9" class="empty">None in this range.</td></tr>`;
+  const idleTot = idleRows.reduce((x, r) => x + r.lb, 0), idleIdle = idleRows.filter(r => r.likely.startsWith("line idle")).reduce((x, r) => x + r.lb, 0);
+  $("#an-idle-text").innerHTML = idleRows.length ? `<b>${fmt(idleTot)} lb</b> of gas across ${idleRows.length} shifts with no run logged — about ${fmt(idleIdle)} lb of it with the filler stopped. That's on top of the ${fmt(rows.reduce((x, r) => x + r.totalLb, 0))} lb in the shifts analysed above.` : "";
+
   // ----- charts -----
   const colors = { C: "#014583", D: "#8ae5ff" }, dark = { C: "#031b27", D: "#457a94" };
   [anChart1, anChart2, anChart3].forEach(c => c && c.destroy());
   anChart1 = new Chart($("#an-chart-trend"), { type: "line",
     data: { labels: weekLabels, datasets: lines.map(L => ({ label: `${L} Line weekly waste %`, data: weekLabels.map(w => { const x = weekList.find(v => v.week === w && v.line === L); return x ? (x.lb - x.tgt) / x.tgt * 100 : null; }), borderColor: colors[L], backgroundColor: colors[L], pointRadius: 5, borderWidth: 2.5, spanGaps: true, tension: 0.25 })) },
     options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, title: { display: true, text: "gas % over target" }, ticks: { callback: v => v + "%" } }, x: { title: { display: true, text: "week starting" } } } } });
+  const cpmOf = (r) => r.cans / r.hours / 60;   // actual production rate, cans per minute
   anChart2 = new Chart($("#an-chart-fixed"), { type: "scatter",
-    data: { datasets: lines.flatMap(L => { const g = full.filter(r => r.line === L); const f = fitLine(g.map(r => r.casesHr), g.map(r => r.lbHr)); const xmax = Math.max(0, ...g.map(r => r.casesHr)) * 1.05;
-      return [{ label: `${L} Line shifts`, data: g.map(r => ({ x: r.casesHr, y: r.lbHr, r })), backgroundColor: colors[L], pointRadius: 6, pointBorderColor: dark[L] },
-        ...(f ? [{ label: `${L} fit: ${fmt(f.c)} lb/hr + ${fmt(f.m * G_PER_LB / 12, 1)} g/can`, type: "line", data: [{ x: 0, y: f.c }, { x: xmax, y: f.c + f.m * xmax }], borderColor: dark[L], borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false }] : [])]; }) },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: { callbacks: { label: (c) => c.raw.r ? `${c.raw.r.date} S${c.raw.r.shift} ${c.raw.r.items}: ${fmt(c.raw.y)} lb/hr at ${fmt(c.raw.x)} cases/hr` : c.dataset.label } } },
-      scales: { x: { beginAtZero: true, title: { display: true, text: "cases per hour" } }, y: { beginAtZero: true, title: { display: true, text: "gas lb per hour" } } } } });
+    data: { datasets: lines.flatMap(L => { const g = full.filter(r => r.line === L); const f = fitLine(g.map(cpmOf), g.map(r => r.lbHr)); const xmax = Math.max(0, ...g.map(cpmOf)) * 1.08;
+      return [{ label: `${L} Line shifts`, data: g.map(r => ({ x: cpmOf(r), y: r.lbHr, r })), backgroundColor: colors[L], pointRadius: 6, pointHoverRadius: 9, pointBorderColor: dark[L] },
+        ...(f ? [{ label: `${L} fit: ${fmt(f.c)} lb/hr fixed + ${fmt(f.m * G_PER_LB / 60, 1)} g per can`, type: "line", data: [{ x: 0, y: f.c }, { x: xmax, y: f.c + f.m * xmax }], borderColor: dark[L], borderDash: [6, 4], borderWidth: 2, pointRadius: 0, pointHitRadius: 0, fill: false }] : [])]; }) },
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "nearest", intersect: true },
+      onClick: (evt, els) => { if (!els.length) return; const d = anChart2.data.datasets[els[0].datasetIndex].data[els[0].index]; if (!d.r) return; const r = d.r;
+        const box = $("#an-fixed-detail"); box.classList.remove("hidden");
+        box.innerHTML = `<b>${r.line} Line · ${r.date} · shift ${r.shift}</b> — ${r.items}<div class="pick-grid">
+          <div><span>Production</span>${fmt(r.cases)} cases · ${fmt(r.cans)} cans · ${fmt(cpmOf(r), 1)} cans/min</div>
+          <div><span>Gas</span>${fmt(r.totalLb)} lb · ${fmt(r.lbHr)} lb/hr · ${fmt(r.gPerCan, 1)} g/can</div>
+          <div><span>Waste</span>${fmt(r.wastePct)}% over ${r.basis} target of ${fmt(r.targetLb)} lb</div>
+          <div><span>Filler</span>${r.avgCpm == null ? "no data" : fmt(r.avgCpm) + " cpm avg · " + fmt(r.eff) + "% efficiency"}${r.pctDown != null ? " · down " + fmt(r.pctDown) + "% of shift" : ""}</div></div>`;
+        box.scrollIntoView({ behavior: "smooth", block: "nearest" }); },
+      plugins: { tooltip: { callbacks: { label: (c) => c.raw.r ? `${c.raw.r.date} S${c.raw.r.shift} ${c.raw.r.items}: ${fmt(c.raw.y)} lb/hr at ${fmt(c.raw.x, 1)} cans/min · ${fmt(c.raw.r.wastePct)}% waste` : c.dataset.label } } },
+      scales: { x: { beginAtZero: true, title: { display: true, text: "cans per minute (produced)" } }, y: { beginAtZero: true, title: { display: true, text: "gas lb per hour" } } } } });
   const topItems = itemList.slice(0, 12);
   anChart3 = new Chart($("#an-chart-items"), { type: "bar",
     data: { labels: topItems.map(o => o.code), datasets: [{ label: "gas per can (g, allocated)", data: topItems.map(o => o.lb * G_PER_LB / o.cans), backgroundColor: topItems.map(o => [...o.lines].includes("C") && ![...o.lines].includes("D") ? colors.C : [...o.lines].includes("D") && ![...o.lines].includes("C") ? colors.D : "#457a94") }, { label: "target g (paperwork or BOM)", type: "line", data: topItems.map(o => o.tgt * G_PER_LB / o.cans), borderColor: "#c27a12", borderDash: [6, 4], borderWidth: 2, pointRadius: 0, stepped: true }] },
-    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, title: { display: true, text: "g per can" } } } } });
+    options: { responsive: true, maintainAspectRatio: false, onClick: (evt, els) => { if (els.length) openItem(topItems[els[0].index].code, true); },
+      scales: { y: { beginAtZero: true, title: { display: true, text: "g per can" } } } } });
   $("#an-export").onclick = () => csv(itemList.map(o => ({ item: o.code, brand: o.brand, lines: [...o.lines].join(" "), shifts: o.shifts, shared_shifts: o.mixed, cases: o.cases, cans: o.cans, gas_lb_allocated: o.lb, g_per_can: o.lb * G_PER_LB / o.cans, target_g_per_can: o.tgt * G_PER_LB / o.cans, waste_pct: (o.lb - o.tgt) / o.tgt * 100, waste_pct_vs_bom: o.bom ? (o.lb - o.bom) / o.bom * 100 : null })), "analysis_by_item.csv");
 }
 ["#an-line", "#an-item"].forEach(id => $(id).addEventListener("change", loadAnalysis));
