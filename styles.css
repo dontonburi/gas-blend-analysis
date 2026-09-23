@@ -193,3 +193,12 @@ table.mini td small { color: var(--ink-2); font-size: 0.75rem; }
 table.mini td:first-child { white-space: normal; }
 table.data td.over { color: var(--waste); font-weight: 600; }
 table.data td.under { color: var(--primary); font-weight: 600; }
+
+/* items page */
+.form-actions { display: flex; gap: 0.6rem; align-items: end; }
+table.data th.grp, table.data td.grp { border-left: 1px solid var(--line); }
+table.data td.actions { white-space: nowrap; } table.data td.actions button + button { margin-left: 0.3rem; }
+table.data td.warn { color: var(--waste); }
+.note-dot { color: var(--waste); font-size: 0.6rem; vertical-align: middle; cursor: help; }
+.chip { display: inline-block; padding: 0.1rem 0.6rem; border-radius: 999px; font-size: 0.8rem; background: var(--pale); color: var(--ink); white-space: nowrap; }
+.chip-dunkin { background: #ffe0cc; } .chip-silk { background: #e8f0d8; } .chip-internationaldelight { background: var(--pale); } .chip-mcdonalds { background: #fff3c4; } .chip-reddiwip { background: #f3e2f5; }

@@ -89,20 +89,34 @@ window.addEventListener("hashchange", () => navigate(location.hash.replace("#", 
 
 /* ---------- items ---------- */
 async function loadItems() { items = await fetchAll("items", "code"); }
+let itemSort = { key: "code", dir: 1 };
+function itemCalc(it) {
+  const c = it.cans_per_case || 12, o = Number(it.n2o_lb_per_case) || 0, n = Number(it.n2_lb_per_case) || 0;
+  return { n2oG: it.n2o_lb_per_case != null ? o * G_PER_LB / c : null, n2G: it.n2_lb_per_case != null ? n * G_PER_LB / c : null, totG: (it.n2o_lb_per_case != null || it.n2_lb_per_case != null) ? (o + n) * G_PER_LB / c : null, massR: (o + n) > 0 ? o / (o + n) : null };
+}
 function renderItems() {
+  const brands = [...new Set(items.map(i => i.brand).filter(Boolean))].sort();
+  const bsel = $("#items-brand"); const cur = bsel.value; bsel.innerHTML = `<option value="">All brands</option>` + brands.map(b => `<option value="${b}"${b === cur ? " selected" : ""}>${b}</option>`).join("");
+  const k = itemSort.key, d = itemSort.dir;
+  const rows = items.map(it => ({ ...it, ...itemCalc(it) })).filter(it => !cur || it.brand === cur)
+    .sort((x, y) => { const a = x[k], b = y[k]; if (a == null && b == null) return 0; if (a == null) return 1; if (b == null) return -1; return (typeof a === "string" ? a.localeCompare(b) : a - b) * d || x.code.localeCompare(y.code); });
+  $$("#items-table th[data-sort]").forEach(th => { th.classList.toggle("asc", th.dataset.sort === k && d === 1); th.classList.toggle("desc", th.dataset.sort === k && d === -1); });
   const tb = $("#items-table tbody"); tb.innerHTML = "";
-  items.forEach(it => {
+  const flag = (v) => v == null ? "<span class='empty'>—</span>" : v;
+  rows.forEach(it => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${it.code}</td><td>${it.brand || ""}</td><td>${it.description || ""}</td><td class="num">${it.cans_per_case ?? ""}</td><td class="num">${it.n2o_lb_per_case ?? ""}</td><td class="num">${it.n2_lb_per_case ?? ""}</td><td class="num">${it.bom_gas_g_per_can ?? ""}</td>
-      <td class="num">${it.n2o_ratio_vol != null ? (it.n2o_ratio_vol * 100).toFixed(1) + "%" : "<span class='empty'>default</span>"}</td>
-      <td class="num">${it.target_gas_g != null ? it.target_gas_g : "<span class='empty'>default</span>"}</td>
-      <td><button class="small" data-edit="${it.code}">Edit</button> <button class="small danger" data-del="${it.code}">Delete</button></td>`;
+    const ratioMismatch = it.n2o_ratio_vol != null && it.massR != null && Math.abs(it.n2o_ratio_vol - it.massR) < 0.02;
+    tr.innerHTML = `<td><b title="${(it.notes || "").replace(/"/g, "&quot;")}">${it.code}</b>${it.notes ? " <span class='note-dot' title='" + it.notes.replace(/'/g, "&#39;") + "'>●</span>" : ""}</td><td><span class="chip chip-${(it.brand || "").replace(/[^a-z]/gi, "").toLowerCase()}">${it.brand || "—"}</span></td><td>${it.description || "<span class='empty'>—</span>"}</td><td class="num">${flag(it.cans_per_case)}</td>
+      <td class="num grp">${it.n2o_lb_per_case != null ? Number(it.n2o_lb_per_case).toFixed(4) : flag(null)}</td><td class="num">${it.n2_lb_per_case != null ? Number(it.n2_lb_per_case).toFixed(4) : flag(null)}</td>
+      <td class="num grp n2o">${it.n2oG != null ? it.n2oG.toFixed(2) : flag(null)}</td><td class="num n2">${it.n2G != null ? it.n2G.toFixed(2) : flag(null)}</td><td class="num"><b>${it.totG != null ? it.totG.toFixed(2) : flag(null)}</b></td>
+      <td class="num grp">${it.n2o_ratio_vol != null ? (it.n2o_ratio_vol * 100).toFixed(1) + "%" : "<span class='empty'>default</span>"}</td><td class="num ${ratioMismatch ? "warn" : ""}" title="${ratioMismatch ? "BOM split equals the volume ratio numerically: BOM likely written by mass" : ""}">${it.massR != null ? (it.massR * 100).toFixed(1) + "%" : flag(null)}</td>
+      <td class="actions"><button class="small" data-edit="${it.code}">Edit</button><button class="small danger" data-del="${it.code}">Delete</button></td>`;
     tb.appendChild(tr);
   });
   tb.onclick = async (e) => {
     const code = e.target.dataset.edit || e.target.dataset.del; if (!code) return;
     const it = items.find(x => x.code === code);
-    if (e.target.dataset.edit) { const f = $("#item-form"); Object.keys(it).forEach(k => { if (f.elements[k]) f.elements[k].value = it[k] ?? ""; }); f.scrollIntoView(); return; }
+    if (e.target.dataset.edit) { const f = $("#item-form"); f.classList.remove("hidden"); Object.keys(it).forEach(k => { if (f.elements[k]) f.elements[k].value = it[k] ?? ""; }); f.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
     if (!confirm(`Delete item ${code}?`)) return;
     const { error } = await sb.from("items").delete().eq("code", code);
     if (error) return toast(error.message, true);
@@ -110,15 +124,11 @@ function renderItems() {
   };
   const sel = $("#run-item"); sel.onchange = () => { const it = items.find(i => i.code === sel.value); if (it?.cans_per_case) $("#run-form").elements.cans_per_case.value = it.cans_per_case; }; sel.innerHTML = `<option value="">— not recorded —</option>` + items.map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}</option>`).join("");
 }
-$("#item-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const row = formData(e.target); row.code = normCode(row.code);
-  $("#item-error").textContent = "";
-  const { error } = await sb.from("items").upsert(row);
-  if (error) { $("#item-error").textContent = "Could not save: " + error.message + (/brand/.test(error.message) ? " — run supabase/update_2026-09-11.sql in Supabase to add the brand column." : ""); return; }
-  e.target.reset(); await loadItems(); renderItems(); toast(`Saved ${row.code}`);
-});
-$("#items-export").addEventListener("click", () => csv(items.map(i => ({ code: i.code, brand: i.brand, description: i.description, cans_per_case: i.cans_per_case, n2o_lb_per_case: i.n2o_lb_per_case, n2_lb_per_case: i.n2_lb_per_case, bom_gas_g_per_can: i.bom_gas_g_per_can, n2o_ratio_vol: i.n2o_ratio_vol, target_gas_g: i.target_gas_g })), "items.csv"));
+$("#items-brand").addEventListener("change", renderItems);
+$("#items-add").addEventListener("click", () => { const f = $("#item-form"); f.reset(); f.classList.remove("hidden"); f.elements.code.focus(); });
+$("#item-cancel").addEventListener("click", () => { const f = $("#item-form"); f.reset(); f.classList.add("hidden"); $("#item-error").textContent = ""; });
+$("#items-table thead").addEventListener("click", (e) => { const th = e.target.closest("th[data-sort]"); if (!th) return; itemSort = th.dataset.sort === itemSort.key ? { key: itemSort.key, dir: -itemSort.dir } : { key: th.dataset.sort, dir: 1 }; renderItems(); });
+$("#items-export").addEventListener("click", () => csv(items.map(i => { const c = itemCalc(i); return { code: i.code, brand: i.brand, description: i.description, cans_per_case: i.cans_per_case, n2o_lb_per_case: i.n2o_lb_per_case, n2_lb_per_case: i.n2_lb_per_case, n2o_g_per_can: c.n2oG, n2_g_per_can: c.n2G, total_g_per_can: c.totG, n2o_ratio_vol: i.n2o_ratio_vol, bom_split_mass: c.massR, target_gas_g: i.target_gas_g, notes: i.notes }; }), "items.csv"));
 
 /* ---------- production runs ---------- */
 async function loadRuns() {
