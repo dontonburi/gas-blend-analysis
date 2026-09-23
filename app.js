@@ -229,11 +229,36 @@ $("#downtime-form").addEventListener("submit", async (e) => {
 });
 
 /* ---------- gas weight checks ---------- */
+function checkShift(c) { // shift from check time; 00:00-06:59 belongs to the previous day's shift 3
+  const hr = c.check_time ? parseInt(String(c.check_time).split(":")[0], 10) : NaN; if (isNaN(hr)) return null;
+  let d = c.check_date, sh = hr >= 7 && hr < 15 ? 1 : hr >= 15 && hr < 23 ? 2 : 3;
+  if (hr < 7) { const t = new Date(d + "T12:00:00"); t.setDate(t.getDate() - 1); d = localDate(t); }
+  return { date: d, shift: sh };
+}
 async function loadChecks() {
-  const rows = await fetchAll("gas_weight_checks", "check_date", false);
+  const [rows, runs] = await Promise.all([fetchAll("gas_weight_checks", "check_date", false), fetchAll("production_runs", "run_date")]);
   const w = rows.map(r => Number(r.weight_g)).filter(x => !isNaN(x) && x > 0).sort((a, b) => a - b);
   const mean = w.reduce((a, b) => a + b, 0) / (w.length || 1), med = w.length ? w[Math.floor(w.length / 2)] : null;
   $("#checks-stats").innerHTML = `<span>Readings <b>${fmt(w.length)}</b></span><span>Mean <b>${fmt(mean, 2)} g</b></span><span>Median <b>${fmt(med, 2)} g</b></span><span>Min <b>${fmt(w[0], 1)} g</b></span><span>Max <b>${fmt(w[w.length - 1], 1)} g</b></span>`;
+  // group by line / date / shift
+  const groups = {};
+  rows.forEach(c => {
+    const s = checkShift(c); if (!s) return;
+    const k = `${c.line || "C"}|${s.date}|${s.shift}`;
+    const g = groups[k] = groups[k] || { line: c.line || "C", date: s.date, shift: s.shift, weights: [], gassers: new Set(), times: new Set(), initials: new Set(), corr: 0 };
+    const wt = Number(c.weight_g); if (wt > 0) g.weights.push(wt);
+    g.gassers.add(c.gasser); if (c.check_time) g.times.add(c.check_time); if (c.initials) g.initials.add(c.initials); if (c.correction_g != null && c.correction_g !== "") g.corr++;
+  });
+  const itemsFor = (line, date, shift) => [...new Set(runs.filter(r => r.line === line && r.run_date === date && r.shift === shift).map(r => r.item_code).filter(Boolean))].join(" + ") || "<span class='empty'>no run logged</span>";
+  const tb = $("#checks-table tbody"); tb.innerHTML = "";
+  Object.values(groups).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line)).forEach(g => {
+    const ws = [...g.weights].sort((a, b) => a - b); const n = ws.length; if (!n) return;
+    const m = ws.reduce((a, b) => a + b, 0) / n, sd = Math.sqrt(ws.reduce((a, b) => a + (b - m) ** 2, 0) / n);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${g.line}</td><td class="date">${g.date}</td><td>${g.shift}</td><td>${itemsFor(g.line, g.date, g.shift)}</td><td>${[...g.gassers].sort().join(", ")}</td><td>${[...g.times].sort().join(", ")}</td>
+      <td class="num">${n}</td><td class="num"><b>${fmt(m, 2)}</b></td><td class="num">${fmt(ws[Math.floor(n / 2)], 2)}</td><td class="num">${fmt(sd, 2)}</td><td class="num">${fmt(ws[0], 1)} – ${fmt(ws[n - 1], 1)}</td><td class="num">${g.corr || ""}</td>`;
+    tb.appendChild(tr);
+  });
   $("#checks-export").onclick = () => csv(rows, "gas_weight_checks.csv");
 }
 $("#check-form").addEventListener("submit", async (e) => {

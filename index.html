@@ -196,7 +196,12 @@
         <button type="submit" class="primary">Save head</button>
       </form>
       <div class="stats" id="checks-stats"></div>
-      <p class="hint">Individual readings aren't listed here — use Export CSV to get the full table.</p>
+      <h2>By shift</h2>
+      <table id="checks-table" class="data compact">
+        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item(s) run</th><th>Gasser</th><th>Check times</th><th class="num">Readings</th><th class="num">Avg g</th><th class="num">Median g</th><th class="num">Std dev</th><th class="num">Range g</th><th class="num">Corrected</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="hint">A check is assigned to a shift by its time (07:00–15:00 = 1, 15:00–23:00 = 2, otherwise 3; checks before 07:00 count toward the previous day's third shift). "Corrected" counts heads where the operator wrote a correction. Individual readings aren't listed — use Export CSV for the full table.</p>
     </section>
 
     <!-- ITEMS -->
