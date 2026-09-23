@@ -106,7 +106,7 @@ function renderItems() {
   rows.forEach(it => {
     const tr = document.createElement("tr");
     const ratioMismatch = it.n2o_ratio_vol != null && it.massR != null && Math.abs(it.n2o_ratio_vol - it.massR) < 0.02;
-    tr.innerHTML = `<td><b title="${(it.notes || "").replace(/"/g, "&quot;")}">${it.code}</b>${it.notes ? " <span class='note-dot' title='" + it.notes.replace(/'/g, "&#39;") + "'>●</span>" : ""}</td><td><span class="chip chip-${(it.brand || "").replace(/[^a-z]/gi, "").toLowerCase()}">${it.brand || "—"}</span></td><td>${it.description || "<span class='empty'>—</span>"}</td><td class="num">${flag(it.cans_per_case)}</td>
+    tr.innerHTML = `<td><b title="${(it.notes || "").replace(/"/g, "&quot;")}">${it.code}</b>${it.gas_blend === false ? " <small class='empty'>non-gas</small>" : ""}${it.notes ? " <span class='note-dot' title='" + it.notes.replace(/'/g, "&#39;") + "'>●</span>" : ""}</td><td><span class="chip chip-${(it.brand || "").replace(/[^a-z]/gi, "").toLowerCase()}">${it.brand || "—"}</span></td><td>${it.description || "<span class='empty'>—</span>"}</td><td class="num">${flag(it.cans_per_case)}</td>
       <td class="num grp">${it.n2o_lb_per_case != null ? Number(it.n2o_lb_per_case).toFixed(4) : flag(null)}</td><td class="num">${it.n2_lb_per_case != null ? Number(it.n2_lb_per_case).toFixed(4) : flag(null)}</td>
       <td class="num grp n2o">${it.n2oG != null ? it.n2oG.toFixed(2) : flag(null)}</td><td class="num n2">${it.n2G != null ? it.n2G.toFixed(2) : flag(null)}</td><td class="num"><b>${it.totG != null ? it.totG.toFixed(2) : flag(null)}</b></td>
       <td class="num grp">${it.n2o_ratio_vol != null ? (it.n2o_ratio_vol * 100).toFixed(1) + "%" : "<span class='empty'>default</span>"}</td><td class="num ${ratioMismatch ? "warn" : ""}" title="${ratioMismatch ? "BOM split equals the volume ratio numerically: BOM likely written by mass" : ""}">${it.massR != null ? (it.massR * 100).toFixed(1) + "%" : flag(null)}</td>
@@ -122,7 +122,7 @@ function renderItems() {
     if (error) return toast(error.message, true);
     await loadItems(); renderItems(); toast("Item deleted");
   };
-  const sel = $("#run-item"); sel.onchange = () => { const it = items.find(i => i.code === sel.value); if (it?.cans_per_case) $("#run-form").elements.cans_per_case.value = it.cans_per_case; }; sel.innerHTML = `<option value="">— not recorded —</option>` + items.map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}</option>`).join("");
+  const sel = $("#run-item"); sel.onchange = () => { const it = items.find(i => i.code === sel.value); if (it?.cans_per_case) $("#run-form").elements.cans_per_case.value = it.cans_per_case; }; sel.innerHTML = `<option value="">— not recorded —</option>` + items.map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}${i.gas_blend === false ? " (non-gas)" : ""}</option>`).join("");
 }
 $("#items-brand").addEventListener("change", renderItems);
 $("#items-add").addEventListener("click", () => { const f = $("#item-form"); f.reset(); f.classList.remove("hidden"); f.elements.code.focus(); });
@@ -320,13 +320,14 @@ function renderDashTable() {
   const cell = (label, val) => `<div><span>${label}</span><b>${val}</b></div>`;
   rows.forEach((r) => {
     const tr = document.createElement("tr"); tr.className = "run";
-    if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="7">no meter data for this shift</td>`; }
+    if (r.nonGasOnly) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">—</td><td class="num">—</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb)}</td><td colspan="6">non-gas-blend production only — ${r.totalLb == null ? "no meter data" : fmt(r.totalLb) + " lb of blend flowed with no gas item running"}</td>`; }
+    else if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="7">no meter data for this shift</td>`; }
     else tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
       <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${r.wastePct == null ? "—" : fmt(r.wastePct) + "%"}</td><td class="basis">${r.basis === "paperwork" ? `Paperwork <small>${r.paperN} rdg</small>` : r.basis === "BOM" ? "BOM" : "<span class='empty'>none</span>"}</td>`;
     tb.appendChild(tr);
     const det = document.createElement("tr"); det.className = "detail hidden";
     const itemsTable = `<table class="mini"><thead><tr><th>Item</th><th>Brand</th><th class="num">Cases</th><th class="num">Cans/case</th><th class="num">Cans</th><th class="num">N₂O ratio</th></tr></thead><tbody>` +
-      r.itemRows.map(x => `<tr><td>${x.code}</td><td>${x.brand || "—"}</td><td class="num">${fmt(x.cases)}</td><td class="num">${x.cpc}</td><td class="num">${fmt(x.cans)}</td><td class="num">${x.ratio != null ? (x.ratio * 100).toFixed(1) + "%" : "default"}</td></tr>`).join("") +
+      r.itemRows.map(x => `<tr class="${x.nonGas ? "muted" : ""}"><td>${x.code}${x.nonGas ? " <small>non-gas</small>" : ""}</td><td>${x.brand || "—"}</td><td class="num">${fmt(x.cases)}</td><td class="num">${x.cpc}</td><td class="num">${fmt(x.cans)}</td><td class="num">${x.nonGas ? "—" : x.ratio != null ? (x.ratio * 100).toFixed(1) + "%" : "default"}</td></tr>`).join("") +
       (r.itemRows.length > 1 ? `<tr class="total"><td>Total</td><td></td><td class="num">${fmt(r.cases)}</td><td></td><td class="num">${fmt(r.cans)}</td><td></td></tr>` : "") + `</tbody></table>`;
     const gasTable = r.totalLb == null ? "—" : `<table class="mini"><thead><tr><th>Gas</th><th class="num">scf</th><th class="num">lb</th><th class="num">% by vol</th></tr></thead><tbody>
       <tr><td class="n2o">N₂O</td><td class="num">${fmt(r.n2oScf)}</td><td class="num">${fmt(r.n2oLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td></tr>
@@ -391,13 +392,17 @@ async function computeShiftRows(lines, from, to) {
     const last = readings.length ? readings[readings.length - 1].t : 0;
     const eUse = (e > last && e - last <= 15 * 60e3) ? last : e;
     const a = interp(readings, s), b = interp(readings, eUse);
-    let cans = 0, bomLb = 0, bomMissing = false;
+    let cans = 0, bomLb = 0, bomMissing = false, nonGasCans = 0;
     const itemRows = g.runs.map(r => {
       const it = items.find(i => i.code === r.item_code) || {};
-      const n = r.cases * (r.cans_per_case || 12); cans += n;
+      const n = r.cases * (r.cans_per_case || 12);
+      const nonGas = it.gas_blend === false;
+      if (nonGas) { nonGasCans += n; return { code: r.item_code || "—", brand: it.brand || "", cases: r.cases, cpc: r.cans_per_case || 12, cans: n, nonGas: true }; }
+      cans += n;
       if (it.bom_gas_g_per_can) bomLb += n * it.bom_gas_g_per_can / G_PER_LB; else bomMissing = true;
       return { code: r.item_code || "—", brand: it.brand || "", cases: r.cases, cpc: r.cans_per_case || 12, cans: n, ratio: it.n2o_ratio_vol, bomG: it.bom_gas_g_per_can };
     });
+    const nonGasOnly = cans === 0 && (nonGasCans > 0 || g.runs.some(r => /non-gas/i.test(r.notes || "")));
     const pw = paper[`${g.line}|${g.date}|${g.shift}`];
     const paperG = pw ? pw.sum / pw.n : null, paperN = pw ? pw.n : 0;
     const paperLb = paperG != null ? cans * paperG / G_PER_LB : null;
@@ -405,7 +410,7 @@ async function computeShiftRows(lines, from, to) {
     // target basis: paperwork for this line/date/shift if it exists, otherwise the items' BOM standard; never the 4.87 assumption
     const basis = paperLb != null ? "paperwork" : bomLb ? "BOM" : null;
     const targetLb = basis === "paperwork" ? paperLb : basis === "BOM" ? bomLb : 0;
-    const cases = g.runs.reduce((x, r) => x + r.cases, 0);
+    const cases = g.runs.filter(r => !itemRows.find(x => x.code === r.item_code)?.nonGas).reduce((x, r) => x + r.cases, 0);
     const hours = (eUse - s) / 3600e3;
     const fill = (fillerBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.cpm);
     const avgCpm = fill.length ? fill.reduce((x, y) => x + y, 0) / fill.length : null;
@@ -415,7 +420,7 @@ async function computeShiftRows(lines, from, to) {
     const dn = (downBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.m);
     const pctDown = dn.length ? dn.filter(m => m > 5).length / dn.length * 100 : null;
     const longestStop = dn.length ? Math.max(...dn) : null;
-    const row = { line: g.line, date: g.date, shift: g.shift, cases, cans, targetLb, bomLb, paperLb, paperG, paperN, basis, itemRows, hours, avgCpm, pctRunning, eff, capacityCans, pctDown, longestStop,
+    const row = { line: g.line, date: g.date, shift: g.shift, cases, cans, targetLb, bomLb, paperLb, paperG, paperN, basis, itemRows, nonGasOnly, nonGasCans, hours, avgCpm, pctRunning, eff, capacityCans, pctDown, longestStop,
       items: [...new Set(itemRows.map(i => i.code))].join(" + "), fillerCans: avgCpm != null ? avgCpm * 60 * hours : null,
       notes: g.runs.map(r => r.notes).filter(Boolean).join("; ") };
     if (a && b) {
@@ -482,7 +487,7 @@ async function loadAnalysis() {
   if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || "2026-08-01"; to.value = localDate(new Date()); }
   const lineSel = $("#an-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
   const [allShifts, allRuns, rawR, rawF] = await Promise.all([computeShiftRows(lines, from.value, to.value), fetchAll("production_runs", "run_date"), fetchAll("gas_readings", "ts"), fetchAll("filler_readings", "ts").catch(() => [])]);
-  const all = allShifts.filter(r => r.totalLb != null && r.targetLb);
+  const all = allShifts.filter(r => r.totalLb != null && r.targetLb && !r.nonGasOnly);
   const readingsBy = {}, fillerBy = {};
   rawR.forEach(r => (readingsBy[r.line] = readingsBy[r.line] || []).push({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
   rawF.forEach(r => (fillerBy[r.line] = fillerBy[r.line] || []).push({ t: new Date(r.ts).getTime(), cpm: Number(r.cpm) }));
@@ -521,7 +526,7 @@ async function loadAnalysis() {
 
   // ----- by item (gas allocated by can share within mixed shifts) -----
   const byItem = {};
-  rows.forEach(r => r.itemRows.forEach(x => {
+  rows.forEach(r => r.itemRows.filter(x => !x.nonGas).forEach(x => {
     const share = r.cans ? x.cans / r.cans : 0; const it = items.find(i => i.code === x.code) || {};
     const o = byItem[x.code] = byItem[x.code] || { code: x.code, brand: x.brand, lines: new Set(), shifts: 0, mixed: 0, cases: 0, cans: 0, lb: 0, tgt: 0, bom: 0 };
     o.lines.add(r.line); o.shifts++; if (r.itemRows.length > 1) o.mixed++;
