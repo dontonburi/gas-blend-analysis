@@ -243,13 +243,13 @@ table.data td.warn { color: var(--waste); }
 
 /* analysis: floating section index */
 .an-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 2rem; align-items: start; }
-.an-index { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 0.35rem; }
+.an-index { position: sticky; top: 150px; display: flex; flex-direction: column; gap: 0.35rem; }
 .an-index a { display: inline-block; padding: 0.4rem 0.9rem; border-radius: 999px; font-size: 0.85rem; font-weight: 500; color: var(--ink); text-decoration: none; border: 1px solid var(--line-strong); background: #fff; transition: all var(--ease); width: fit-content; }
 .an-index a:hover { border-color: var(--primary); color: var(--primary); }
 .an-index a.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 .an-body { min-width: 0; }
 .an-body > h2:first-child { margin-top: 0.4rem; }
-#page-analysis h2[id] { scroll-margin-top: 96px; }
+#page-analysis h2[id] { scroll-margin-top: 160px; }
 @media (max-width: 900px) { .an-layout { grid-template-columns: 1fr; } .an-index { position: sticky; top: 64px; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; padding: 0.4rem 0; background: var(--bg); z-index: 5; } }
 
 /* ---- scroll reveal ---- */
@@ -290,3 +290,22 @@ table.data td.warn { color: var(--waste); }
 .kpis.five .kpi.mini-kpi { padding: 1.1rem 1.2rem; }
 table.data tr.run.selected td { background: color-mix(in srgb, var(--pale) 60%, #fff); }
 table.data tr.run.selected td:first-child { box-shadow: inset 4px 0 0 var(--waste); }
+
+/* ---- floating filter bar (Palantir-style frosted header) ---- */
+.an-head { position: sticky; top: 68px; z-index: 8; margin: 0 -1rem 0.6rem; padding: 0.6rem 1rem; border-radius: 1rem; transition: background-color .35s ease, box-shadow .35s ease, backdrop-filter .35s ease; }
+.an-head.floating { background: color-mix(in srgb, var(--bg) 78%, transparent); -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2); box-shadow: 0 8px 30px rgba(3,27,39,.08); }
+.an-head.floating h1 { font-size: 1.15rem; }
+.an-head h1 { transition: font-size .35s cubic-bezier(.16,1,.3,1); }
+@media (max-width: 900px) { .an-head { top: 0; margin: 0; } }
+
+/* ---- Palantir-style text rise: words mask-reveal from below ---- */
+.reveal h2 { opacity: 1; transform: none; transition: none; }
+.reveal h2 .w { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: 0.08em; margin-bottom: -0.08em; }
+.reveal h2 .w > span { display: inline-block; transform: translateY(110%); transition: transform 1.2s cubic-bezier(.16,1,.3,1); transition-delay: calc(var(--i) * 80ms); will-change: transform; }
+.reveal.in h2 .w > span { transform: none; }
+.reveal .lede, .reveal > p.lede { opacity: 0; transform: translateY(26px); filter: blur(5px); transition: opacity 1.3s cubic-bezier(.16,1,.3,1) .4s, transform 1.3s cubic-bezier(.16,1,.3,1) .4s, filter 1.3s cubic-bezier(.16,1,.3,1) .4s; }
+.reveal.in .lede { opacity: 1; transform: none; filter: none; }
+.reveal .chart-wrap { transition-delay: .6s !important; transition-duration: 1.1s !important; } .reveal table.data { transition-delay: .75s !important; transition-duration: 1.1s !important; }
+.reveal.in .kpi:nth-child(1) { transition-delay: .5s; } .reveal.in .kpi:nth-child(2) { transition-delay: .62s; } .reveal.in .kpi:nth-child(3) { transition-delay: .74s; } .reveal.in .kpi:nth-child(4) { transition-delay: .86s; } .reveal.in .kpi:nth-child(5) { transition-delay: .98s; }
+/* the section wrapper itself: gentler than before so the words carry the motion */
+.reveal { transform: translateY(24px); filter: none; transition-duration: 1.2s; }

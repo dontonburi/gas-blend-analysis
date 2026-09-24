@@ -656,11 +656,16 @@ async function loadAnalysis() {
 }
 ["#an-line", "#an-item"].forEach(id => $(id).addEventListener("change", loadAnalysis));
 $("#an-refresh").addEventListener("click", loadAnalysis);
-$$(".an-index a").forEach(link => link.addEventListener("click", (e) => { e.preventDefault(); const t = $("#" + link.dataset.target); if (!t) return; const y = t.getBoundingClientRect().top + window.scrollY - 96; window.scrollTo({ top: y, behavior: "smooth" }); }));
-const anObserver = new IntersectionObserver((entries) => { entries.forEach(en => { if (en.isIntersecting) $$(".an-index a").forEach(l => l.classList.toggle("active", l.dataset.target === en.target.id)); }); }, { rootMargin: "-20% 0px -70% 0px" });
+$$(".an-index a").forEach(link => link.addEventListener("click", (e) => { e.preventDefault(); const t = $("#" + link.dataset.target); if (!t) return; const y = t.getBoundingClientRect().top + window.scrollY - 160; window.scrollTo({ top: y, behavior: "smooth" }); }));
+const anObserver = new IntersectionObserver((entries) => { entries.forEach(en => { if (en.isIntersecting) $$(".an-index a").forEach(l => l.classList.toggle("active", l.dataset.target === en.target.id)); }); }, { rootMargin: "-25% 0px -65% 0px" });
 $$("#page-analysis h2[id]").forEach(h2 => anObserver.observe(h2));
 
 /* ---------- scroll reveal (Onyx / Palantir style) ---------- */
+function splitWords(el) { if (el.dataset.split) return; el.dataset.split = "1"; const words = el.textContent.trim().split(/\s+/); el.innerHTML = words.map((w, i) => `<span class="w"><span style="--i:${i}">${w}</span></span>`).join(" "); }
+$$(".reveal h2").forEach(splitWords);
+(() => { const sent = $("#an-sentinel"), head = $(".an-head"); if (!sent || !head) return;
+  const check = () => { if ($("#page-analysis").classList.contains("hidden")) return; head.classList.toggle("floating", sent.getBoundingClientRect().top < 72); };
+  window.addEventListener("scroll", check, { passive: true }); window.addEventListener("hashchange", () => setTimeout(check, 100)); })();
 const revealObs = new IntersectionObserver((entries) => { entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add("in"); revealObs.unobserve(en.target); } }); }, { rootMargin: "0px 0px -10% 0px", threshold: 0.08 });
 function revealNow() { $$(".reveal:not(.in)").forEach(el => { const r = el.getBoundingClientRect(); if (r.top < window.innerHeight * 0.9) el.classList.add("in"); else revealObs.observe(el); }); }
 
