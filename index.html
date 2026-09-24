@@ -14,7 +14,7 @@
   <form id="signin-form" class="signin-card">
     <img class="signin-logo" id="logo-img-signin" alt="Alamance Foods" onerror="this.remove()">
     <h1>Gas Blend Runs</h1>
-    <p>Enter the password to continue.</p>
+    <p>Enter the password to continue. Colleagues can use the guest password for read-only access.</p>
     <label>Password <input type="password" id="password" autocomplete="off" required autofocus></label>
     <button type="submit" class="primary">Open</button>
     <p id="signin-error" class="error"></p>
@@ -31,9 +31,9 @@
       <nav class="site-nav">
         <a href="#dashboard" data-page="dashboard" class="active">Dashboard</a>
         <a href="#analysis" data-page="analysis">Analysis</a>
-        <a href="#runs" data-page="runs">Production runs</a>
-        <a href="#readings" data-page="readings">Meter readings</a>
-        <a href="#checks" data-page="checks">Gas weight checks</a>
+        <a href="#runs" data-page="runs" class="admin-only">Production runs</a>
+        <a href="#readings" data-page="readings" class="admin-only">Meter readings</a>
+        <a href="#checks" data-page="checks" class="admin-only">Gas weight checks</a>
         <a href="#items" data-page="items">Items</a>
         <a href="#convert" data-page="convert">Conversions</a>
       </nav>
@@ -265,7 +265,7 @@
         <h1>Items</h1>
         <div class="range">
           <label>Brand <select id="items-brand"><option value="">All brands</option></select></label>
-          <button id="items-add" class="secondary">Add item</button>
+          <button id="items-add" class="secondary admin-only">Add item</button>
           <button id="items-export" class="secondary">Export CSV</button>
         </div>
       </header>

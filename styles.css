@@ -317,3 +317,7 @@ table.data tr.run.selected td:first-child { box-shadow: inset 4px 0 0 var(--wast
 .seg button.on { background: var(--navy); color: #fbf9f5; }
 .seg button.on[data-v="C"] { background: var(--primary); } .seg button.on[data-v="D"] { background: var(--sky); color: var(--ink); }
 #an-item { max-width: 260px; }
+
+/* guest (read-only) mode */
+body.guest .admin-only, body.guest #items-table td.actions button, body.guest #item-form { display: none !important; }
+body.guest #items-table td.actions { width: 0; padding: 0; }

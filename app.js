@@ -17,6 +17,7 @@ const D = { n2o: 0.116, n2: 0.0739 };            // lb per scf at 60F / 14.7 psi
 const DEFAULT_RATIO_VOL = 0.85;                   // N2O fraction by volume when item ratio is blank
 const DEFAULT_TARGET_G = 4.87;
 const FILLER_SETPOINT = { C: 300, D: 250 };            // cans per minute at full speed                    // g gas per can when item target is blank
+const GUEST_HASH = "84983c60f7daadc1cb8698621f802c0d9f9a3c3c295c810748fb048115c186ec";
 const PASSWORD_HASH = "b4b9c4c60e9dd10880a39f1825f1de018e23aea06e08b8d94aa336519d5fc088";
 const normCode = (c) => (c || "").trim().toUpperCase().replace(/^([A-Z]{2}\d+).*$/, "$1");   // AD28-T, AG45-WIP -> AD28, AG45
 let items = [];
@@ -64,21 +65,27 @@ async function showApp() {
 const LOGO = (typeof CONFIG !== "undefined" && CONFIG.LOGO_URL) || "https://www.alamancefoods.com/wp-content/uploads/2026/09/cropped-alamance-favicon-new-270x270.png";
 document.addEventListener("DOMContentLoaded", () => { $$("#logo-img, #logo-img-signin").forEach(i => i.src = LOGO); });
 window.addEventListener("scroll", () => document.body.classList.toggle("scrolled", window.scrollY > 10), { passive: true });
+const ADMIN_PAGES = ["runs", "readings", "checks"];
+function role() { return sessionStorage.getItem("gaslog-role"); }
+function applyRole() { const guest = role() === "guest"; document.body.classList.toggle("guest", guest); $("#signout").textContent = guest ? "Sign out (guest)" : "Sign out"; }
 async function boot() {
   if (!sb) return;
-  if (sessionStorage.getItem("gaslog-ok") === "1") showApp(); else showSignin();
+  if (role()) { applyRole(); showApp(); } else showSignin();
 }
 $("#signin-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (await sha256($("#password").value) === PASSWORD_HASH) { sessionStorage.setItem("gaslog-ok", "1"); $("#password").value = ""; showApp(); }
-  else $("#signin-error").textContent = "Wrong password.";
+  const hsh = await sha256($("#password").value);
+  if (hsh === PASSWORD_HASH) sessionStorage.setItem("gaslog-role", "admin"); else if (hsh === GUEST_HASH) sessionStorage.setItem("gaslog-role", "guest");
+  else { $("#signin-error").textContent = "Wrong password."; return; }
+  $("#password").value = ""; applyRole(); showApp();
 });
-$("#signout").addEventListener("click", () => { sessionStorage.removeItem("gaslog-ok"); showSignin(); });
+$("#signout").addEventListener("click", () => { sessionStorage.removeItem("gaslog-role"); document.body.classList.remove("guest"); showSignin(); });
 
 /* ---------- navigation ---------- */
 const loaders = { analysis: loadAnalysis, dashboard: loadDashboard, runs: loadRuns, readings: loadReadings, checks: loadChecks, items: renderItems, convert: renderConvert };
 function navigate(page) {
   if (!loaders[page]) page = "dashboard";
+  if (role() === "guest" && ADMIN_PAGES.includes(page)) page = "dashboard";
   $$(".page").forEach(p => p.classList.add("hidden"));
   $(`#page-${page}`).classList.remove("hidden");
   $$(".site-nav a").forEach(a => a.classList.toggle("active", a.dataset.page === page));
@@ -115,6 +122,7 @@ function renderItems() {
     tb.appendChild(tr);
   });
   tb.onclick = async (e) => {
+    if (role() === "guest") return;
     const code = e.target.dataset.edit || e.target.dataset.del; if (!code) return;
     const it = items.find(x => x.code === code);
     if (e.target.dataset.edit) { const f = $("#item-form"); f.classList.remove("hidden"); Object.keys(it).forEach(k => { if (f.elements[k]) f.elements[k].value = it[k] ?? ""; }); f.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
