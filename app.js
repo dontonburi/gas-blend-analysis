@@ -492,7 +492,7 @@ const mkChart = (key, el, cfg) => { if (anCharts[key]) anCharts[key].destroy(); 
 async function loadAnalysis() {
   const from = $("#an-from"), to = $("#an-to");
   if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || "2026-08-01"; to.value = localDate(new Date()); }
-  const lineSel = $("#an-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
+  const lineSel = $("#an-line .on")?.dataset.v || "ALL"; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
   const [allShifts, allRuns, rawR, rawF, rawEvents] = await Promise.all([computeShiftRows(lines, from.value, to.value), fetchAll("production_runs", "run_date"), fetchAll("gas_readings", "ts"), fetchAll("filler_readings", "ts").catch(() => []), fetchAll("gas_events", "start_ts").catch(() => [])]);
   const all = allShifts.filter(r => r.totalLb != null && r.targetLb && !r.nonGasOnly);
   const readingsBy = {}, fillerBy = {};
@@ -500,8 +500,10 @@ async function loadAnalysis() {
   rawF.forEach(r => (fillerBy[r.line] = fillerBy[r.line] || []).push({ t: new Date(r.ts).getTime(), cpm: Number(r.cpm) }));
   const itemSel = $("#an-item"); const cur = itemSel.value;
   const codes = [...new Set(all.flatMap(r => r.itemRows.filter(x => !x.nonGas).map(x => x.code)))].sort();
-  itemSel.innerHTML = `<option value="">All items</option>` + codes.map(c => `<option value="${c}"${c === cur ? " selected" : ""}>${c}</option>`).join("");
-  const rows = cur ? all.filter(r => r.itemRows.some(x => x.code === cur)) : all;
+  const brandOf = (c) => items.find(i => i.code === c)?.brand || "Other";
+  const brands = [...new Set(codes.map(brandOf))].sort();
+  itemSel.innerHTML = `<option value="">All items</option>` + brands.map(b => `<optgroup label="${b}"><option value="brand:${b}"${cur === "brand:" + b ? " selected" : ""}>All ${b}</option>` + codes.filter(c => brandOf(c) === b).map(c => `<option value="${c}"${c === cur ? " selected" : ""}>${c} — ${(items.find(i => i.code === c)?.description || "").replace(/^(Silk|Dunkin|International Delight|McDonald's) /, "")}</option>`).join("") + `</optgroup>`).join("");
+  const rows = !cur ? all : cur.startsWith("brand:") ? all.filter(r => r.itemRows.some(x => brandOf(x.code) === cur.slice(6))) : all.filter(r => r.itemRows.some(x => x.code === cur));
   const full = rows.filter(r => r.hours >= 7.5);
   const gasTot = rows.reduce((x, r) => x + r.totalLb, 0);
   $("#an-count").textContent = `${rows.length} shifts, ${from.value} to ${to.value}`;
@@ -654,7 +656,8 @@ async function loadAnalysis() {
   $("#an-idle-text").innerHTML = idleRows.length ? `<b>${fmt(openTot)} lb</b> across ${open.length} unexplained shift${open.length === 1 ? "" : "s"}. A further ${fmt(covTot)} lb in ${idleRows.length - open.length} shifts is already explained by confirmed events (greyed).` : "";
   revealNow();
 }
-["#an-line", "#an-item"].forEach(id => $(id).addEventListener("change", loadAnalysis));
+$("#an-item").addEventListener("change", loadAnalysis);
+$("#an-line").addEventListener("click", (e) => { const b = e.target.closest("button[data-v]"); if (!b || b.classList.contains("on")) return; $$("#an-line button").forEach(x => x.classList.toggle("on", x === b)); loadAnalysis(); });
 $("#an-refresh").addEventListener("click", loadAnalysis);
 $$(".an-index a").forEach(link => link.addEventListener("click", (e) => { e.preventDefault(); const t = $("#" + link.dataset.target); if (!t) return; const y = t.getBoundingClientRect().top + window.scrollY - 160; window.scrollTo({ top: y, behavior: "smooth" }); }));
 const anObserver = new IntersectionObserver((entries) => { entries.forEach(en => { if (en.isIntersecting) $$(".an-index a").forEach(l => l.classList.toggle("active", l.dataset.target === en.target.id)); }); }, { rootMargin: "-25% 0px -65% 0px" });
