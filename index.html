@@ -151,24 +151,14 @@
       <section class="an-sec reveal">
       <h2 id="an-sec-events">Room for improvement — blend system left open</h2>
       <p class="lede">Times the blend system was open with no gas-blend production, grouped by cause. Startup is the gas it takes to bring the system up before the first can and is expected. Downtime covers stops of 30 minutes or more during a run where the filler wasn't running; end of schedule and changeover are the moments where closing the blend would have saved the gas outright. Click a bar or a card to filter the list.</p>
-      <div class="events-grid">
-        <div class="chart-wrap short"><canvas id="an-chart-events"></canvas></div>
-        <div class="kpis stack" id="an-events-kpis"></div>
-      </div>
+      <div class="chart-wrap short"><canvas id="an-chart-events"></canvas></div>
+      <div class="kpis five" id="an-events-kpis"></div>
       <p class="hint" id="an-events-filter"></p>
       <table class="data compact" id="an-events">
-        <thead><tr><th>Category</th><th>Line</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th>What happened</th><th></th></tr></thead>
+        <thead><tr><th>Category</th><th>Line</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th>What happened</th></tr></thead>
         <tbody></tbody>
       </table>
-      <p class="hint">Downtime rows marked "detected" come from the filler and meter data automatically; the rest were confirmed on the floor. Add or correct events below.</p>
-      <form id="event-form" class="entry">
-        <label>Line <select name="line"><option>C</option><option>D</option></select></label>
-        <label>Start <input type="datetime-local" name="start_ts" required></label>
-        <label>End <input type="datetime-local" name="end_ts" required></label>
-        <label>Category <select name="category"><option value="startup">Startup</option><option value="end_of_schedule">End of schedule / CIP</option><option value="changeover">Changeover</option><option value="downtime">Downtime</option></select></label>
-        <label class="wide">What happened <input type="text" name="cause"></label>
-        <button type="submit" class="primary">Save event</button>
-      </form>
+      <p class="hint">Downtime rows marked "detected" come from the filler and meter data automatically; the rest were confirmed on the floor.</p>
       </section>
 
       <section class="an-sec reveal">

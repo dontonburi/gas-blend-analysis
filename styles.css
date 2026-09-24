@@ -282,3 +282,11 @@ table.data td.warn { color: var(--waste); }
 #an-events-filter a { color: var(--primary); }
 @media (max-width: 900px) { .events-grid { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .reveal, .reveal * { opacity: 1 !important; transform: none !important; transition: none !important; } }
+
+.kpis.five { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.9rem; margin-top: 1rem; }
+@media (max-width: 1100px) { .kpis.five { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } }
+.kpis.five .kpi.mini-kpi .big { font-size: 1.7rem; }
+.kpis.five .kpi h3 { font-size: 0.68rem; }
+.kpis.five .kpi.mini-kpi { padding: 1.1rem 1.2rem; }
+table.data tr.run.selected td { background: color-mix(in srgb, var(--pale) 60%, #fff); }
+table.data tr.run.selected td:first-child { box-shadow: inset 4px 0 0 var(--waste); }

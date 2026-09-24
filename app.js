@@ -517,15 +517,24 @@ async function loadAnalysis() {
     o.cases += x.cases; o.cans += x.cans; o.lb += r.totalLb * share; o.tgt += r.targetLb * share; o.bom += it.bom_gas_g_per_can ? x.cans * it.bom_gas_g_per_can / G_PER_LB : 0;
   }));
   const itemList = Object.values(byItem).sort((a, b) => b.lb - a.lb);
+  const topItems = itemList.slice(0, 12);
+  const baseColor = (o) => [...o.lines].includes("C") && ![...o.lines].includes("D") ? colors.C : [...o.lines].includes("D") && ![...o.lines].includes("C") ? colors.D : "#457a94";
   const itemShifts = (code) => rows.filter(r => r.itemRows.some(x => x.code === code)).sort((x, y) => x.date.localeCompare(y.date) || x.shift - y.shift).map(r => { const x = r.itemRows.find(i => i.code === code); const share = r.cans ? x.cans / r.cans : 0; return { r, x, share, lb: r.totalLb * share, tgt: r.targetLb * share }; });
   const drill = (code) => `<table class="mini"><thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Ran with</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Share</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Waste %</th><th>Basis</th><th class="num">Filler cpm</th><th class="num">Efficiency</th></tr></thead><tbody>`
     + itemShifts(code).map(({ r, x, share, lb, tgt }) => `<tr><td>${r.line}</td><td>${r.date}</td><td>${r.shift}</td><td>${r.itemRows.filter(i => i.code !== code).map(i => i.code).join(" + ") || "—"}</td><td class="num">${fmt(x.cases)}</td><td class="num">${fmt(x.cans)}</td><td class="num">${fmt(share * 100)}%</td><td class="num">${fmt(lb)}</td><td class="num">${fmt(lb * G_PER_LB / x.cans, 1)}</td><td class="num waste">${tgt ? fmt((lb - tgt) / tgt * 100) + "%" : "—"}</td><td>${r.basis || "—"}</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td></tr>`).join("") + `</tbody></table>`;
   $("#an-items tbody").innerHTML = itemList.map(o => `<tr class="run" data-code="${o.code}"><td><b>${o.code}</b></td><td>${o.brand || "—"}</td><td>${[...o.lines].join(", ")}</td><td class="num">${o.shifts}${o.mixed ? ` <small>(${o.mixed} shared)</small>` : ""}</td><td class="num">${fmt(o.cases)}</td><td class="num">${fmt(o.cans)}</td><td class="num">${fmt(o.lb)}</td><td class="num">${fmt(o.lb * G_PER_LB / o.cans, 1)}</td><td class="num">${fmt(o.tgt * G_PER_LB / o.cans, 2)}</td><td class="num waste">${fmt((o.lb - o.tgt) / o.tgt * 100)}%</td><td class="num">${o.bom ? fmt((o.lb - o.bom) / o.bom * 100) + "%" : "—"}</td></tr><tr class="detail hidden" data-for="${o.code}"><td colspan="11"><div class="run-detail one">${drill(o.code)}</div></td></tr>`).join("");
-  const openItem = (code, scroll) => { const det = $(`#an-items tr.detail[data-for="${code}"]`); if (!det) return; det.classList.toggle("hidden"); if (scroll && !det.classList.contains("hidden")) det.scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+  let openCode = null;
+  const openItem = (code, scroll) => {
+    const det = $(`#an-items tr.detail[data-for="${code}"]`); if (!det) return;
+    const wasOpen = !det.classList.contains("hidden");
+    $$("#an-items tr.detail").forEach(d => d.classList.add("hidden")); $$("#an-items tr.run").forEach(t => t.classList.remove("selected"));
+    openCode = wasOpen ? null : code;
+    if (!wasOpen) { det.classList.remove("hidden"); det.previousElementSibling.classList.add("selected"); if (scroll) det.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+    const ch = anCharts.items; if (ch) { ch.data.datasets[0].backgroundColor = topItems.map(o => o.code === openCode ? "#c27a12" : baseColor(o)); ch.data.datasets[0].borderColor = topItems.map(o => o.code === openCode ? "#031b27" : "transparent"); ch.data.datasets[0].borderWidth = topItems.map(o => o.code === openCode ? 2 : 0); ch.update(); }
+  };
   $("#an-items tbody").onclick = (e) => { const tr = e.target.closest("tr.run"); if (tr) openItem(tr.dataset.code); };
-  const topItems = itemList.slice(0, 12);
   mkChart("items", "#an-chart-items", { type: "bar",
-    data: { labels: topItems.map(o => o.code), datasets: [{ label: "gas per can (g, allocated)", data: topItems.map(o => o.lb * G_PER_LB / o.cans), backgroundColor: topItems.map(o => [...o.lines].includes("C") && ![...o.lines].includes("D") ? colors.C : [...o.lines].includes("D") && ![...o.lines].includes("C") ? colors.D : "#457a94"), borderRadius: 6 }, { label: "target g (paperwork or BOM)", type: "line", data: topItems.map(o => o.tgt * G_PER_LB / o.cans), borderColor: "#c27a12", borderDash: [6, 4], borderWidth: 2, pointRadius: 0, stepped: true }] },
+    data: { labels: topItems.map(o => o.code), datasets: [{ label: "gas per can (g, allocated) — click a bar to expand", data: topItems.map(o => o.lb * G_PER_LB / o.cans), backgroundColor: topItems.map(baseColor), borderColor: topItems.map(() => "transparent"), borderWidth: 0, borderRadius: 6 }, { label: "target g (paperwork or BOM)", type: "line", data: topItems.map(o => o.tgt * G_PER_LB / o.cans), borderColor: "#c27a12", borderDash: [6, 4], borderWidth: 2, pointRadius: 0, stepped: true }] },
     options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: "easeOutQuart" }, onClick: (evt, els) => { if (els.length) openItem(topItems[els[0].index].code, true); }, scales: { y: { beginAtZero: true, title: { display: true, text: "g per can" } } } } });
   $("#an-export").onclick = () => csv(itemList.map(o => ({ item: o.code, brand: o.brand, lines: [...o.lines].join(" "), shifts: o.shifts, shared_shifts: o.mixed, cases: o.cases, cans: o.cans, gas_lb_allocated: o.lb, g_per_can: o.lb * G_PER_LB / o.cans, target_g_per_can: o.tgt * G_PER_LB / o.cans, waste_pct: (o.lb - o.tgt) / o.tgt * 100, waste_pct_vs_bom: o.bom ? (o.lb - o.bom) / o.bom * 100 : null })), "analysis_by_item.csv");
 
@@ -584,7 +593,7 @@ async function loadAnalysis() {
     for (let i = 0; i < fl.length - 1; i++) {
       const s0 = fl[i].t, e0 = fl[i + 1].t, a0 = lbAt(s0), b0 = lbAt(e0); if (a0 == null || b0 == null) continue;
       const lb = b0 - a0, hrs = (e0 - s0) / 3600e3;
-      if (hrs > 2 || lb < 1 || lb / hrs > 150) { if (cur) { found.push(cur); cur = null; } continue; }   // gas off, data gap, or clearly running (filler sample glitch)
+      if (hrs > 2 || lb < 1) { if (cur) { found.push(cur); cur = null; } continue; }   // gas off, or a data gap
       if (fl[i].cpm < 20) { if (!cur) cur = { start: s0, end: e0, lb, hrs }; else { cur.end = e0; cur.lb += lb; cur.hrs += hrs; } }
       else if (cur) { cur.runsAfter = true; found.push(cur); cur = null; }
     }
@@ -599,14 +608,13 @@ async function loadAnalysis() {
   const renderEvents = () => {
     const list = events.filter(e => !evFilter || e.category === evFilter).sort((a, b) => catOrder.indexOf(a.category) - catOrder.indexOf(b.category) || b.lb - a.lb);
     $("#an-events-filter").innerHTML = evFilter ? `Showing <b>${CATS[evFilter]}</b> only — <a href="#" id="an-events-clear">show all</a>` : "";
-    $("#an-events tbody").innerHTML = list.map(e => `<tr><td><span class="cat" style="--c:${CAT_COLORS[e.category]}"></span>${CATS[e.category] || e.category}</td><td>${e.line}</td><td>${fdt(e.start_ts)}</td><td>${fdt(e.end_ts)}</td><td class="num">${fmt(e.hrs, 1)}</td><td class="num">${fmt(e.lb)}</td><td class="num">${fmt(e.lb / e.hrs)}</td><td>${e.detected ? "<span class='empty'>" + e.cause + "</span>" : (e.cause || "")}</td><td>${e.detected ? "" : `<button class="small danger" data-del="${e.id}">Delete</button>`}</td></tr>`).join("") || `<tr><td colspan="9" class="empty">No events in this range.</td></tr>`;
+    $("#an-events tbody").innerHTML = list.map(e => `<tr><td><span class="cat" style="--c:${CAT_COLORS[e.category]}"></span>${CATS[e.category] || e.category}</td><td>${e.line}</td><td>${fdt(e.start_ts)}</td><td>${fdt(e.end_ts)}</td><td class="num">${fmt(e.hrs, 1)}</td><td class="num">${fmt(e.lb)}</td><td class="num">${fmt(e.lb / e.hrs)}</td><td>${e.detected ? "<span class='empty'>" + e.cause + "</span>" : (e.cause || "")}</td></tr>`).join("") || `<tr><td colspan="8" class="empty">No events in this range.</td></tr>`;
     $("#an-events-clear")?.addEventListener("click", (ev) => { ev.preventDefault(); evFilter = null; renderEvents(); anCharts.events.setActiveElements([]); anCharts.events.update(); });
     $("#an-events-kpis").innerHTML = catOrder.map(c => { const v = byCat[c]; return `<div class="kpi mini-kpi ${evFilter === c ? "on" : ""}" data-cat="${c}" style="--c:${CAT_COLORS[c]}"><h3><span class="cat" style="--c:${CAT_COLORS[c]}"></span>${CATS[c]}${c === "startup" ? " <small>(expected)</small>" : ""}</h3><div class="big">${fmt(v.lb)} lb<small>${v.n} event${v.n === 1 ? "" : "s"} · ${fmt(v.hrs, 1)} h${v.hrs ? " · " + fmt(v.lb / v.hrs) + " lb/hr" : ""}</small></div><p class="hint">${CAT_NOTE[c]}</p></div>`; }).join("")
       + `<div class="kpi mini-kpi total"><h3>Opportunity</h3><div class="big">${fmt(opportunity)} lb<small>end of schedule + changeover + downtime · ${fmt(opportunity / (gasTot + evTot) * 100, 1)}% of gas in the period</small></div></div>`;
     $$("#an-events-kpis .kpi[data-cat]").forEach(k => k.onclick = () => { evFilter = evFilter === k.dataset.cat ? null : k.dataset.cat; renderEvents(); });
   };
   renderEvents();
-  $("#an-events tbody").onclick = async (e) => { const id = e.target.dataset.del; if (!id || !confirm("Delete this event?")) return; const { error } = await sb.from("gas_events").delete().eq("id", id); if (error) return toast(error.message, true); loadAnalysis(); };
   mkChart("events", "#an-chart-events", { type: "bar",
     data: { labels: catOrder.map(c => CATS[c]), datasets: lines.map(L => ({ label: `${L} Line`, data: catOrder.map(c => byCat[c][L] || 0), backgroundColor: L === "C" ? catOrder.map(c => CAT_COLORS[c]) : catOrder.map(c => CAT_COLORS[c] + "88"), borderColor: catOrder.map(c => CAT_COLORS[c]), borderWidth: L === "D" ? 2 : 0, borderRadius: 6, stack: "s" })) },
     options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: "easeOutQuart" },
@@ -647,11 +655,6 @@ async function loadAnalysis() {
   revealNow();
 }
 ["#an-line", "#an-item"].forEach(id => $(id).addEventListener("change", loadAnalysis));
-$("#event-form").addEventListener("submit", async (e) => {
-  e.preventDefault(); const row = formData(e.target); row.start_ts = new Date(row.start_ts).toISOString(); row.end_ts = new Date(row.end_ts).toISOString();
-  const { error } = await sb.from("gas_events").insert(row); if (error) return toast(error.message, true);
-  e.target.reset(); toast("Event saved"); loadAnalysis();
-});
 $("#an-refresh").addEventListener("click", loadAnalysis);
 $$(".an-index a").forEach(link => link.addEventListener("click", (e) => { e.preventDefault(); const t = $("#" + link.dataset.target); if (!t) return; const y = t.getBoundingClientRect().top + window.scrollY - 96; window.scrollTo({ top: y, behavior: "smooth" }); }));
 const anObserver = new IntersectionObserver((entries) => { entries.forEach(en => { if (en.isIntersecting) $$(".an-index a").forEach(l => l.classList.toggle("active", l.dataset.target === en.target.id)); }); }, { rootMargin: "-20% 0px -70% 0px" });
