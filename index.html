@@ -93,37 +93,20 @@
 
       <div class="an-layout">
       <nav class="an-index" aria-label="Analysis sections">
-        <a href="#an-sec-items" data-target="an-sec-items">By item</a>
-        <a href="#an-sec-lines" data-target="an-sec-lines">By line</a>
-        <a href="#an-sec-eff" data-target="an-sec-eff">Efficiency</a>
+        <a href="#an-sec-lines" data-target="an-sec-lines">Overview</a>
         <a href="#an-sec-trend" data-target="an-sec-trend">Trend</a>
-        <a href="#an-sec-events" data-target="an-sec-events">Gas-open events</a>
+        <a href="#an-sec-eff" data-target="an-sec-eff">Efficiency</a>
         <a href="#an-sec-start" data-target="an-sec-start">Start of run</a>
+        <a href="#an-sec-items" data-target="an-sec-items">By item</a>
+        <a href="#an-sec-events" data-target="an-sec-events">Improvement</a>
         <a href="#an-sec-nolog" data-target="an-sec-nolog">Not logged</a>
       </nav>
       <div class="an-body">
 
       <section class="an-sec reveal">
-      <h2 id="an-sec-items">Performance by item</h2>
-      <p class="lede">Target per shift comes from the paperwork when gas weight checks exist for that line, date and shift; otherwise from the item's BOM. When several items run in one shift the meter can't separate them, so that shift's gas is split between them in proportion to cans filled ("shared" shifts). Click an item — in the chart or the table — to list every shift it ran.</p>
-      <div class="chart-wrap short"><canvas id="an-chart-items"></canvas></div>
-      <table class="data compact" id="an-items">
-        <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Target g</th><th class="num">Waste %</th><th class="num">vs BOM only</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      </section>
-
-      <section class="an-sec reveal">
       <h2 id="an-sec-lines">Performance by line</h2>
+      <p class="lede">Gas metered against the target for every gas-blend shift in the period, per line. The target for each shift is the paperwork average where gas weight checks exist, otherwise the BOM standard.</p>
       <div class="kpis" id="an-lines"></div>
-      </section>
-
-      <section class="an-sec reveal">
-      <h2 id="an-sec-eff">Efficiency vs waste</h2>
-      <p class="lede">Each dot is a full shift. Across the bottom is how fast the filler actually ran, as a share of its maximum speed (C 300 cpm, D 250 cpm); up the side is gas over target. The fixed bleed is spread over fewer cans when the line runs slowly, which is why waste climbs steeply on the left. Click a dot for that shift; click a legend entry to hide a series.</p>
-      <div class="chart-wrap short"><canvas id="an-chart-eff"></canvas></div>
-      <div id="an-eff-detail" class="pick hidden"></div>
-      <div class="kpis" id="an-eff-kpis"></div>
       </section>
 
       <section class="an-sec reveal">
@@ -137,29 +120,15 @@
       </section>
 
       <section class="an-sec reveal">
-      <h2 id="an-sec-events">Gas-open events</h2>
-      <p class="lede">Times the blend system was open with no gas-blend production — investigated on the floor and grouped into four causes. Startup is the gas it takes to bring the system up before the first can and is treated as acceptable; the other three are avoidable. Click a bar to filter the list.</p>
-      <div class="events-grid">
-        <div class="chart-wrap short"><canvas id="an-chart-events"></canvas></div>
-        <div class="kpis stack" id="an-events-kpis"></div>
-      </div>
-      <p class="hint" id="an-events-filter"></p>
-      <table class="data compact" id="an-events">
-        <thead><tr><th>Category</th><th>Line</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th>What happened</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <form id="event-form" class="entry">
-        <label>Line <select name="line"><option>C</option><option>D</option></select></label>
-        <label>Start <input type="datetime-local" name="start_ts" required></label>
-        <label>End <input type="datetime-local" name="end_ts" required></label>
-        <label>Category <select name="category"><option value="startup">Startup (acceptable)</option><option value="end_of_schedule">End of schedule / CIP</option><option value="changeover">Changeover</option><option value="downtime">Downtime</option></select></label>
-        <label class="wide">What happened <input type="text" name="cause"></label>
-        <button type="submit" class="primary">Save event</button>
-      </form>
+      <h2 id="an-sec-eff">Efficiency vs waste</h2>
+      <p class="lede">Each dot is a full shift. Across the bottom is how fast the filler actually ran, as a share of its maximum speed (C 300 cpm, D 250 cpm); up the side is gas over target. The fixed bleed is spread over fewer cans when the line runs slowly, which is why waste climbs steeply on the left. Click a dot for that shift; click a legend entry to hide a series.</p>
+      <div class="chart-wrap short"><canvas id="an-chart-eff"></canvas></div>
+      <div id="an-eff-detail" class="pick hidden"></div>
+      <div class="kpis" id="an-eff-kpis"></div>
       </section>
 
       <section class="an-sec reveal">
-      <h2 id="an-sec-start">Start-of-run effect</h2>
+      <h2 id="an-sec-start">Start of run</h2>
       <p class="lede" id="an-start-text"></p>
       <div class="chart-wrap short"><canvas id="an-chart-start"></canvas></div>
       <div class="kpis" id="an-start-kpis"></div>
@@ -170,8 +139,41 @@
       </section>
 
       <section class="an-sec reveal">
+      <h2 id="an-sec-items">Performance by item</h2>
+      <p class="lede">When several items run in one shift the meter can't separate them, so that shift's gas is split between them in proportion to cans filled ("shared" shifts). Click an item — in the chart or the table — to list every shift it ran.</p>
+      <div class="chart-wrap short"><canvas id="an-chart-items"></canvas></div>
+      <table class="data compact" id="an-items">
+        <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Target g</th><th class="num">Waste %</th><th class="num">vs BOM only</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      </section>
+
+      <section class="an-sec reveal">
+      <h2 id="an-sec-events">Room for improvement — blend system left open</h2>
+      <p class="lede">Times the blend system was open with no gas-blend production, grouped by cause. Startup is the gas it takes to bring the system up before the first can and is expected. Downtime covers stops of 30 minutes or more during a run where the filler wasn't running; end of schedule and changeover are the moments where closing the blend would have saved the gas outright. Click a bar or a card to filter the list.</p>
+      <div class="events-grid">
+        <div class="chart-wrap short"><canvas id="an-chart-events"></canvas></div>
+        <div class="kpis stack" id="an-events-kpis"></div>
+      </div>
+      <p class="hint" id="an-events-filter"></p>
+      <table class="data compact" id="an-events">
+        <thead><tr><th>Category</th><th>Line</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th>What happened</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="hint">Downtime rows marked "detected" come from the filler and meter data automatically; the rest were confirmed on the floor. Add or correct events below.</p>
+      <form id="event-form" class="entry">
+        <label>Line <select name="line"><option>C</option><option>D</option></select></label>
+        <label>Start <input type="datetime-local" name="start_ts" required></label>
+        <label>End <input type="datetime-local" name="end_ts" required></label>
+        <label>Category <select name="category"><option value="startup">Startup</option><option value="end_of_schedule">End of schedule / CIP</option><option value="changeover">Changeover</option><option value="downtime">Downtime</option></select></label>
+        <label class="wide">What happened <input type="text" name="cause"></label>
+        <button type="submit" class="primary">Save event</button>
+      </form>
+      </section>
+
+      <section class="an-sec reveal">
       <h2 id="an-sec-nolog">Gas with no production logged</h2>
-      <p class="lede">Shifts where the meter recorded gas flow but no gas-blend production run is entered for that line, date and shift, and no confirmed event covers them. Either the cases weren't logged, or the line was sitting with gas up.</p>
+      <p class="lede">Shifts where the meter recorded gas flow but no gas-blend production run is entered for that line, date and shift, and no event covers them. Either the cases weren't logged, or the line was sitting with gas up. Kept as a standing check even when empty.</p>
       <table class="data compact" id="an-idle">
         <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Meter coverage</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th>Likely</th></tr></thead>
         <tbody></tbody>

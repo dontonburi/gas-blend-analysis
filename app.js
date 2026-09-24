@@ -485,7 +485,7 @@ function fitLine(xs, ys) {
 function weekStart(dateStr) { const d = new Date(dateStr + "T00:00:00"); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return localDate(d); }
 const CATS = { startup: "Startup", end_of_schedule: "End of schedule", changeover: "Changeover", downtime: "Downtime" };
 const CAT_COLORS = { startup: "#8ae5ff", end_of_schedule: "#014583", changeover: "#c27a12", downtime: "#b3261e" };
-const CAT_NOTE = { startup: "acceptable — gas to bring the system up before the first can", end_of_schedule: "blend left open after the last can, or through a CIP", changeover: "blend open while a non-gas item ran, or during a long changeover", downtime: "blend open through an equipment stop" };
+const CAT_NOTE = { startup: "expected — gas to bring the system up before the first can", end_of_schedule: "blend left open after the last can, or through a CIP", changeover: "blend open while a non-gas item ran, or during a long changeover", downtime: "blend open through a stop of 30 min or more with the filler idle" };
 const med = (arr) => { const v = arr.filter(x => x != null && !isNaN(x)).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
 const mkChart = (key, el, cfg) => { if (anCharts[key]) anCharts[key].destroy(); anCharts[key] = new Chart($(el), cfg); return anCharts[key]; };
 
@@ -576,18 +576,33 @@ async function loadAnalysis() {
   // ===== gas-open events (4 groups) =====
   const events = rawEvents.filter(e => lines.includes(e.line) && e.start_ts.slice(0, 10) >= from.value && e.start_ts.slice(0, 10) <= to.value);
   events.forEach(e => { const pts = readingsBy[e.line] || []; const a = interp(pts, new Date(e.start_ts).getTime()), b = interp(pts, new Date(e.end_ts).getTime()); e.lb = a && b ? (b.n2o - a.n2o) * D.n2o + (b.n2 - a.n2) * D.n2 : Number(e.gas_lb) || 0; e.hrs = (new Date(e.end_ts) - new Date(e.start_ts)) / 3600e3; });
+  // detected downtime: gas flowing while the filler sat idle for 30+ min inside a run, not already covered by a confirmed event
+  lines.forEach(L => {
+    const pts = readingsBy[L] || [], fl = (fillerBy[L] || []).filter(p => p.t >= new Date(from.value).getTime() && p.t < new Date(to.value).getTime() + 864e5); if (pts.length < 2 || fl.length < 2) return;
+    const lbAt = (t) => { const v = interp(pts, t); return v ? v.n2o * D.n2o + v.n2 * D.n2 : null; };
+    let cur = null; const found = [];
+    for (let i = 0; i < fl.length - 1; i++) {
+      const s0 = fl[i].t, e0 = fl[i + 1].t, a0 = lbAt(s0), b0 = lbAt(e0); if (a0 == null || b0 == null) continue;
+      const lb = b0 - a0, hrs = (e0 - s0) / 3600e3;
+      if (hrs > 2 || lb < 1 || lb / hrs > 150) { if (cur) { found.push(cur); cur = null; } continue; }   // gas off, data gap, or clearly running (filler sample glitch)
+      if (fl[i].cpm < 20) { if (!cur) cur = { start: s0, end: e0, lb, hrs }; else { cur.end = e0; cur.lb += lb; cur.hrs += hrs; } }
+      else if (cur) { cur.runsAfter = true; found.push(cur); cur = null; }
+    }
+    found.filter(f => f.hrs >= 0.5 && f.runsAfter && !events.some(e => e.line === L && new Date(e.start_ts).getTime() < f.end && new Date(e.end_ts).getTime() > f.start))
+      .forEach(f => events.push({ id: null, line: L, start_ts: new Date(f.start).toISOString(), end_ts: new Date(f.end).toISOString(), category: "downtime", cause: "detected — filler idle with gas up (equipment stop?)", lb: f.lb, hrs: f.hrs, detected: true }));
+  });
   const catOrder = ["startup", "end_of_schedule", "changeover", "downtime"];
   const byCat = {}; catOrder.forEach(c => byCat[c] = { lb: 0, hrs: 0, n: 0, C: 0, D: 0 }); events.forEach(e => { const c = byCat[e.category] || (byCat[e.category] = { lb: 0, hrs: 0, n: 0, C: 0, D: 0 }); c.lb += e.lb; c.hrs += e.hrs; c.n++; c[e.line] = (c[e.line] || 0) + e.lb; });
-  const evTot = events.reduce((x, e) => x + e.lb, 0), avoidable = events.filter(e => e.category !== "startup").reduce((x, e) => x + e.lb, 0);
+  const evTot = events.reduce((x, e) => x + e.lb, 0), opportunity = events.filter(e => e.category !== "startup").reduce((x, e) => x + e.lb, 0);
   let evFilter = null;
   const fdt = (t) => new Date(t).toLocaleString([], { weekday: "short", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const renderEvents = () => {
     const list = events.filter(e => !evFilter || e.category === evFilter).sort((a, b) => catOrder.indexOf(a.category) - catOrder.indexOf(b.category) || b.lb - a.lb);
     $("#an-events-filter").innerHTML = evFilter ? `Showing <b>${CATS[evFilter]}</b> only — <a href="#" id="an-events-clear">show all</a>` : "";
-    $("#an-events tbody").innerHTML = list.map(e => `<tr><td><span class="cat" style="--c:${CAT_COLORS[e.category]}"></span>${CATS[e.category] || e.category}</td><td>${e.line}</td><td>${fdt(e.start_ts)}</td><td>${fdt(e.end_ts)}</td><td class="num">${fmt(e.hrs, 1)}</td><td class="num">${fmt(e.lb)}</td><td class="num">${fmt(e.lb / e.hrs)}</td><td>${e.cause || ""}</td><td><button class="small danger" data-del="${e.id}">Delete</button></td></tr>`).join("") || `<tr><td colspan="9" class="empty">No events in this range.</td></tr>`;
+    $("#an-events tbody").innerHTML = list.map(e => `<tr><td><span class="cat" style="--c:${CAT_COLORS[e.category]}"></span>${CATS[e.category] || e.category}</td><td>${e.line}</td><td>${fdt(e.start_ts)}</td><td>${fdt(e.end_ts)}</td><td class="num">${fmt(e.hrs, 1)}</td><td class="num">${fmt(e.lb)}</td><td class="num">${fmt(e.lb / e.hrs)}</td><td>${e.detected ? "<span class='empty'>" + e.cause + "</span>" : (e.cause || "")}</td><td>${e.detected ? "" : `<button class="small danger" data-del="${e.id}">Delete</button>`}</td></tr>`).join("") || `<tr><td colspan="9" class="empty">No events in this range.</td></tr>`;
     $("#an-events-clear")?.addEventListener("click", (ev) => { ev.preventDefault(); evFilter = null; renderEvents(); anCharts.events.setActiveElements([]); anCharts.events.update(); });
-    $("#an-events-kpis").innerHTML = catOrder.map(c => { const v = byCat[c]; return `<div class="kpi mini-kpi ${evFilter === c ? "on" : ""}" data-cat="${c}" style="--c:${CAT_COLORS[c]}"><h3><span class="cat" style="--c:${CAT_COLORS[c]}"></span>${CATS[c]}${c === "startup" ? " <small>(acceptable)</small>" : ""}</h3><div class="big">${fmt(v.lb)} lb<small>${v.n} event${v.n === 1 ? "" : "s"} · ${fmt(v.hrs, 1)} h${v.hrs ? " · " + fmt(v.lb / v.hrs) + " lb/hr" : ""}</small></div><p class="hint">${CAT_NOTE[c]}</p></div>`; }).join("")
-      + `<div class="kpi mini-kpi total"><h3>Avoidable</h3><div class="big">${fmt(avoidable)} lb<small>${fmt(avoidable / (gasTot + evTot) * 100, 1)}% of gas in the period · ${fmt(evTot - avoidable)} lb more in startup</small></div></div>`;
+    $("#an-events-kpis").innerHTML = catOrder.map(c => { const v = byCat[c]; return `<div class="kpi mini-kpi ${evFilter === c ? "on" : ""}" data-cat="${c}" style="--c:${CAT_COLORS[c]}"><h3><span class="cat" style="--c:${CAT_COLORS[c]}"></span>${CATS[c]}${c === "startup" ? " <small>(expected)</small>" : ""}</h3><div class="big">${fmt(v.lb)} lb<small>${v.n} event${v.n === 1 ? "" : "s"} · ${fmt(v.hrs, 1)} h${v.hrs ? " · " + fmt(v.lb / v.hrs) + " lb/hr" : ""}</small></div><p class="hint">${CAT_NOTE[c]}</p></div>`; }).join("")
+      + `<div class="kpi mini-kpi total"><h3>Opportunity</h3><div class="big">${fmt(opportunity)} lb<small>end of schedule + changeover + downtime · ${fmt(opportunity / (gasTot + evTot) * 100, 1)}% of gas in the period</small></div></div>`;
     $$("#an-events-kpis .kpi[data-cat]").forEach(k => k.onclick = () => { evFilter = evFilter === k.dataset.cat ? null : k.dataset.cat; renderEvents(); });
   };
   renderEvents();
