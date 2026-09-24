@@ -440,7 +440,7 @@ async function computeShiftRows(lines, from, to) {
 
 async function loadDashboard() {
   const from = $("#dash-from"), to = $("#dash-to");
-  if (!from.value) { const t = new Date(); to.value = localDate(t); t.setDate(t.getDate() - 30); from.value = localDate(t); }
+  if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || localDate(new Date(Date.now() - 30 * 864e5)); to.value = localDate(new Date()); }
   const lineSel = $("#dash-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
   const out = await computeShiftRows(lines, from.value, to.value);
   dashRows = out; renderDashTable();
