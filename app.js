@@ -273,17 +273,32 @@ async function loadChecks() {
   const bomFor = (line, date, shift) => { // can-weighted BOM g/can across the items run that shift
     let cans = 0, g = 0; runsFor(line, date, shift).forEach(r => { const it = items.find(i => i.code === r.item_code); if (it?.bom_gas_g_per_can) { const n = r.cases * (r.cans_per_case || 12); cans += n; g += n * it.bom_gas_g_per_can; } });
     return cans ? g / cans : null; };
+  // item for each group: explicit item_code on the readings if present, else the biggest run that shift
+  Object.values(groups).forEach(g => { const explicit = rows.find(c => c.item_code && `${c.line || "C"}|${checkShift(c)?.date}|${checkShift(c)?.shift}` === `${g.line}|${g.date}|${g.shift}`); g.item = explicit ? explicit.item_code : (runsFor(g.line, g.date, g.shift).sort((x, y) => y.cases - x.cases)[0]?.item_code || null); });
+  const byItem = {};
+  Object.values(groups).forEach(g => { const k = g.item || "(no run logged)"; const o = byItem[k] = byItem[k] || { item: k, weights: [], shifts: 0, lines: new Set(), dates: new Set() }; o.weights.push(...g.weights); o.shifts++; o.lines.add(g.line); o.dates.add(g.date); });
+  const itemStats = Object.values(byItem).map(o => { const w = [...o.weights].sort((x, y) => x - y), n = w.length, m = n ? w.reduce((x, y) => x + y, 0) / n : 0, sd = n ? Math.sqrt(w.reduce((x, y) => x + (y - m) ** 2, 0) / n) : 0; const it = items.find(i => i.code === o.item) || {}; const ds = [...o.dates].sort();
+    return { ...o, n, m, sd, med: n ? w[Math.floor(n / 2)] : null, min: w[0], max: w[n - 1], brand: it.brand || "", bom: it.bom_gas_g_per_can, dates: ds.length > 1 ? `${ds[0]} → ${ds[ds.length - 1]}` : ds[0] || "" }; }).sort((x, y) => y.n - x.n);
+  $("#checks-items tbody").innerHTML = itemStats.map(o => `<tr class="run" data-item="${o.item}"><td><b>${o.item}</b></td><td>${o.brand}</td><td>${[...o.lines].join(", ")}</td><td class="num">${fmt(o.n)}</td><td class="num">${o.shifts}</td><td class="num"><b>${fmt(o.m, 2)}</b></td><td class="num">${fmt(o.med, 2)}</td><td class="num">${fmt(o.min, 1)}</td><td class="num">${fmt(o.max, 1)}</td><td class="num">${fmt(o.sd, 2)}</td><td class="num">${o.bom ? fmt(o.bom, 2) : "—"}</td><td class="num ${o.bom ? (o.m > o.bom ? "over" : "under") : ""}">${o.bom ? (o.m > o.bom ? "+" : "") + fmt((o.m - o.bom) / o.bom * 100) + "%" : "—"}</td><td>${o.dates}</td></tr>`).join("");
+  let itemFilter = null;
+  const renderShifts = () => {
+  $("#checks-shift-filter").innerHTML = itemFilter ? `— showing ${itemFilter} · <a href="#" id="checks-clear">show all</a>` : "";
+  $("#checks-clear")?.addEventListener("click", (e) => { e.preventDefault(); itemFilter = null; $$("#checks-items tr.run").forEach(t => t.classList.remove("selected")); renderShifts(); });
   const tb = $("#checks-table tbody"); tb.innerHTML = "";
-  Object.values(groups).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line)).forEach(g => {
+  Object.values(groups).filter(g => !itemFilter || (g.item || "(no run logged)") === itemFilter).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line)).forEach(g => {
     const ws = [...g.weights].sort((a, b) => a - b); const n = ws.length; if (!n) return;
     const m = ws.reduce((a, b) => a + b, 0) / n, sd = Math.sqrt(ws.reduce((a, b) => a + (b - m) ** 2, 0) / n);
     const tr = document.createElement("tr");
     const bom = bomFor(g.line, g.date, g.shift); const dev = bom ? (m - bom) / bom * 100 : null;
-    tr.innerHTML = `<td>${g.line}</td><td class="date">${g.date}</td><td>${g.shift}</td><td>${itemsFor(g.line, g.date, g.shift)}</td><td>${[...g.gassers].sort().join(", ")}</td><td>${[...g.times].sort().join(", ")}</td>
+    tr.innerHTML = `<td>${g.line}</td><td class="date">${g.date}</td><td>${g.shift}</td><td>${g.item || itemsFor(g.line, g.date, g.shift)}</td><td>${[...g.gassers].sort().join(", ")}</td><td>${[...g.times].sort().join(", ")}</td>
       <td class="num">${n}</td><td class="num"><b>${fmt(m, 2)}</b></td><td class="num">${fmt(ws[Math.floor(n / 2)], 2)}</td><td class="num">${fmt(sd, 2)}</td><td class="num">${fmt(ws[0], 1)} – ${fmt(ws[n - 1], 1)}</td>
       <td class="num">${bom ? fmt(bom, 2) : "—"}</td><td class="num ${dev == null ? "" : dev > 0 ? "over" : "under"}">${dev == null ? "—" : (dev > 0 ? "+" : "") + fmt(dev) + "%"}</td><td class="num">${g.corr || ""}</td>`;
     tb.appendChild(tr);
   });
+  };
+  renderShifts();
+  $("#checks-items tbody").onclick = (e) => { const tr = e.target.closest("tr.run"); if (!tr) return; itemFilter = itemFilter === tr.dataset.item ? null : tr.dataset.item; $$("#checks-items tr.run").forEach(t => t.classList.toggle("selected", t.dataset.item === itemFilter)); renderShifts(); $("#checks-table").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+  const sel = $("#check-item"); if (sel) sel.innerHTML = `<option value="">— from production run —</option>` + items.filter(i => i.gas_blend !== false).map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}</option>`).join("");
   $("#checks-export").onclick = () => csv(rows, "gas_weight_checks.csv");
 }
 $("#check-form").addEventListener("submit", async (e) => {

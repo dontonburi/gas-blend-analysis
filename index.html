@@ -242,6 +242,7 @@
         <label>Time <input type="text" name="check_time" placeholder="07:20"></label>
         <label>Initials <input type="text" name="initials"></label>
         <label>Operator <input type="text" name="operator"></label>
+        <label>Item <select name="item_code" id="check-item"><option value="">— from production run —</option></select></label>
         <label>Can size <input type="text" name="can_size" value="18 oz"></label>
         <label>Head <input type="number" name="head" min="1" max="18" required></label>
         <label>Before g <input type="number" step="0.1" name="before_g"></label>
@@ -251,7 +252,13 @@
         <button type="submit" class="primary">Save head</button>
       </form>
       <div class="stats" id="checks-stats"></div>
-      <h2>By shift</h2>
+      <h2>By item</h2>
+      <p class="lede">Every reading grouped by the item that was running (from the item column, or the production run logged for that line, date and shift). Click an item to see its readings by shift below.</p>
+      <table id="checks-items" class="data compact">
+        <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Readings</th><th class="num">Shifts</th><th class="num">Average g</th><th class="num">Median g</th><th class="num">Min g</th><th class="num">Max g</th><th class="num">Std dev</th><th class="num">BOM g/can</th><th class="num">vs BOM</th><th>Dates</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h2>By shift <small id="checks-shift-filter" class="hint"></small></h2>
       <table id="checks-table" class="data compact">
         <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item(s) run</th><th>Gasser</th><th>Check times</th><th class="num">Readings</th><th class="num">Avg g</th><th class="num">Median g</th><th class="num">Std dev</th><th class="num">Range g</th><th class="num">BOM g/can</th><th class="num">vs BOM</th><th class="num">Corrected</th></tr></thead>
         <tbody></tbody>
