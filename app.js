@@ -255,7 +255,9 @@ function checkShift(c) { // shift from check time; 00:00-06:59 belongs to the pr
   return { date: d, shift: sh };
 }
 async function loadChecks() {
-  const [rows, runs] = await Promise.all([fetchAll("gas_weight_checks", "check_date", false), fetchAll("production_runs", "run_date")]);
+  const [rows, runs, enactRows] = await Promise.all([fetchAll("gas_weight_checks", "check_date", false), fetchAll("production_runs", "run_date"), fetchAll("enact_kpi", "summary_date", false).catch(() => [])]);
+  $("#enact-status").textContent = enactRows.length ? `— ${enactRows.length} shift/day summaries received` : "— nothing received yet; the receiver adds rows here automatically after each shift";
+  $("#enact-table tbody").innerHTML = enactRows.slice(0, 200).map(k => `<tr><td class="date">${localDate(new Date(k.summary_date))}</td><td>${k.shift_name || "day"}</td><td>${k.process_leaf || k.process_name}</td><td>${k.part_name}</td><td>${k.feature_name}</td><td class="num">${fmt(k.subgroup_count)}</td><td class="num">${fmt(k.piece_count)}</td><td class="num"><b>${fmt(k.mean, 2)}</b></td><td class="num">${fmt(k.sd_long_term, 2)}</td><td class="num">${fmt(k.oos_count)}</td><td>${new Date(k.received_at).toLocaleDateString()}</td></tr>`).join("") || `<tr><td colspan="11" class="empty">No Enact data yet.</td></tr>`;
   const w = rows.map(r => Number(r.weight_g)).filter(x => !isNaN(x) && x > 0).sort((a, b) => a - b);
   const mean = w.reduce((a, b) => a + b, 0) / (w.length || 1), med = w.length ? w[Math.floor(w.length / 2)] : null;
   $("#checks-stats").innerHTML = `<span>Readings <b>${fmt(w.length)}</b></span><span>Mean <b>${fmt(mean, 2)} g</b></span><span>Median <b>${fmt(med, 2)} g</b></span><span>Min <b>${fmt(w[0], 1)} g</b></span><span>Max <b>${fmt(w[w.length - 1], 1)} g</b></span>`;
@@ -347,7 +349,7 @@ function renderDashTable() {
     if (r.nonGasOnly) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">—</td><td class="num">—</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb)}</td><td colspan="6">non-gas-blend production only — ${r.totalLb == null ? "no meter data" : fmt(r.totalLb) + " lb of blend flowed with no gas item running"}</td>`; }
     else if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="7">no meter data for this shift</td>`; }
     else tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
-      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${r.wastePct == null ? "—" : fmt(r.wastePct) + "%"}</td><td class="basis">${r.basis === "paperwork" ? `Paperwork <small>${r.paperN} rdg</small>` : r.basis === "BOM" ? "BOM" : "<span class='empty'>none</span>"}</td>`;
+      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${r.wastePct == null ? "—" : fmt(r.wastePct) + "%"}</td><td class="basis">${r.basis === "paperwork" ? `Paperwork <small>${r.paperN} rdg</small>` : r.basis === "Enact" ? `Enact <small>${r.paperN} pcs</small>` : r.basis === "BOM" ? "BOM" : "<span class='empty'>none</span>"}</td>`;
     tb.appendChild(tr);
     const det = document.createElement("tr"); det.className = "detail hidden";
     const itemsTable = `<table class="mini"><thead><tr><th>Item</th><th>Brand</th><th class="num">Cases</th><th class="num">Cans/case</th><th class="num">Cans</th><th class="num">N₂O ratio</th></tr></thead><tbody>` +
@@ -359,7 +361,7 @@ function renderDashTable() {
       <tr class="total"><td>Total</td><td class="num">${fmt(r.n2oScf + r.n2Scf)}</td><td class="num">${fmt(r.totalLb)}</td><td></td></tr></tbody></table>`;
     const wasteRow = (label, tgt, used) => tgt ? `<tr class="${used ? "used" : ""}"><td>${label}${used ? " <small>· used</small>" : ""}</td><td class="num">${fmt(tgt)}</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb - tgt)}</td><td class="num waste">${r.totalLb == null ? "—" : fmt((r.totalLb - tgt) / tgt * 100) + "%"}</td></tr>` : "";
     const wasteTable = (r.paperLb || r.bomLb) ? `<table class="mini"><thead><tr><th>Basis</th><th class="num">Target lb</th><th class="num">Over lb</th><th class="num">Waste %</th></tr></thead><tbody>` +
-      wasteRow(`Paperwork ${fmt(r.paperG, 2)} g <small>(${r.paperN} rdg)</small>`, r.paperLb, r.basis === "paperwork") + wasteRow(`BOM${r.itemRows.length === 1 && r.itemRows[0].bomG ? " " + fmt(r.itemRows[0].bomG, 2) + " g" : ""}`, r.bomLb, r.basis === "BOM") + `</tbody></table>` : `<p class="hint">No paperwork for this shift and no BOM gas standard for its items, so waste isn't calculated.</p>`;
+      wasteRow(`${r.basis === "Enact" ? "Enact" : "Paperwork"} ${fmt(r.paperG, 2)} g <small>(${r.paperN} ${r.basis === "Enact" ? "pcs" : "rdg"})</small>`, r.paperLb, r.basis === "paperwork" || r.basis === "Enact") + wasteRow(`BOM${r.itemRows.length === 1 && r.itemRows[0].bomG ? " " + fmt(r.itemRows[0].bomG, 2) + " g" : ""}`, r.bomLb, r.basis === "BOM") + `</tbody></table>` : `<p class="hint">No paperwork for this shift and no BOM gas standard for its items, so waste isn't calculated.</p>`;
     const kv = (label, val) => `<div class="kv"><span>${label}</span><div>${val}</div></div>`;
     det.innerHTML = `<td colspan="13"><div class="run-detail">
       <div class="detail-tables">
@@ -385,13 +387,23 @@ $("#dash-table thead").addEventListener("click", (e) => { const th = e.target.cl
   dashSort = th.dataset.sort === dashSort.key ? { key: dashSort.key, dir: -dashSort.dir } : { key: th.dataset.sort, dir: th.dataset.sort === "wastePct" || th.dataset.sort === "gPerCan" ? -1 : 1 }; renderDashTable(); });
 
 async function computeShiftRows(lines, from, to) {
-  const [runs, raw, fillerRaw, downRaw, checksRaw] = await Promise.all([
+  const [runs, raw, fillerRaw, downRaw, checksRaw, enactRaw] = await Promise.all([
     sb.from("production_runs").select("*").in("line", lines).gte("run_date", from).lte("run_date", to).order("run_date").order("shift").then(r => r.data || []),
     fetchAll("gas_readings", "ts"),
     fetchAll("filler_readings", "ts").catch(() => []),
     fetchAll("filler_downtime", "ts").catch(() => []),
     fetchAll("gas_weight_checks", "check_date").catch(() => []),
+    fetchAll("enact_kpi", "summary_date").catch(() => []),
   ]);
+  // Enact per-shift means: key line|date|shift -> { g, n, item }
+  const enact = {};
+  enactRaw.forEach(k => {
+    if (!/gas|weight/i.test(k.feature_name || "")) return;
+    const line = /\bD\b|D Line|D-Line/i.test(k.process_name) ? "D" : /\bC\b|C Line|C-Line/i.test(k.process_name) ? "C" : null; if (!line) return;
+    const sh = k.shift_name ? (/3|third|3rd|night/i.test(k.shift_name) ? 3 : /2|second|2nd|even|swing/i.test(k.shift_name) ? 2 : 1) : null; if (!sh) return;
+    const d = localDate(new Date(k.summary_date)); const key = `${line}|${d}|${sh}`; const n = Number(k.piece_count) || 0, m = Number(k.mean);
+    const o = enact[key] = enact[key] || { sum: 0, n: 0, items: new Set() }; o.sum += m * n; o.n += n; o.items.add(normCode(String(k.part_name).split(/[ -]/)[0]));
+  });
   // paperwork: mean measured gas weight per line + date + shift (check_time decides the shift; 00:00-06:59 belongs to previous day's shift 3)
   const paper = {};
   checksRaw.forEach(c => {
@@ -427,12 +439,12 @@ async function computeShiftRows(lines, from, to) {
       return { code: r.item_code || "—", brand: it.brand || "", cases: r.cases, cpc: r.cans_per_case || 12, cans: n, ratio: it.n2o_ratio_vol, bomG: it.bom_gas_g_per_can };
     });
     const nonGasOnly = cans === 0 && (nonGasCans > 0 || g.runs.some(r => /non-gas/i.test(r.notes || "")));
-    const pw = paper[`${g.line}|${g.date}|${g.shift}`];
-    const paperG = pw ? pw.sum / pw.n : null, paperN = pw ? pw.n : 0;
+    const pw = paper[`${g.line}|${g.date}|${g.shift}`] || (enact[`${g.line}|${g.date}|${g.shift}`] && { ...enact[`${g.line}|${g.date}|${g.shift}`], src: "Enact" });
+    const paperG = pw ? pw.sum / pw.n : null, paperN = pw ? pw.n : 0, paperSrc = pw?.src || "paperwork";
     const paperLb = paperG != null ? cans * paperG / G_PER_LB : null;
     if (bomMissing) bomLb = 0;
     // target basis: paperwork for this line/date/shift if it exists, otherwise the items' BOM standard; never the 4.87 assumption
-    const basis = paperLb != null ? "paperwork" : bomLb ? "BOM" : null;
+    const basis = paperLb != null ? paperSrc : bomLb ? "BOM" : null;
     const targetLb = basis === "paperwork" ? paperLb : basis === "BOM" ? bomLb : 0;
     const cases = g.runs.filter(r => !itemRows.find(x => x.code === r.item_code)?.nonGas).reduce((x, r) => x + r.cases, 0);
     const hours = (eUse - s) / 3600e3;
@@ -572,7 +584,7 @@ async function loadAnalysis() {
   }).filter(Boolean);
   $("#an-lines").innerHTML = byLine.map(L => `<div class="kpi" data-line="${L.line}"><h3>${L.line} Line</h3><div class="big">${fmt(L.waste)}%<small>gas over target</small></div><dl>
       <dt>Gas per can</dt><dd>${fmt(L.gcan, 1)} g <small>vs ${fmt(L.tgtG, 2)} g target</small></dd>
-      <dt>Target basis</dt><dd>${L.paperShifts} of ${L.shifts} <small>shifts from paperwork, rest BOM</small></dd>
+      <dt>Target basis</dt><dd>${L.paperShifts} of ${L.shifts} <small>shifts measured (paperwork / Enact), rest BOM</small></dd>
       <dt>Shifts · cases</dt><dd>${fmt(L.shifts)} · ${fmt(L.cases)}</dd>
       <dt>Gas metered</dt><dd>${fmt(L.lb)} lb</dd>
       <dt>vs BOM only</dt><dd>${L.wasteBom == null ? "—" : fmt(L.wasteBom) + "%"}</dd>
