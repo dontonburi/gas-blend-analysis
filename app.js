@@ -256,8 +256,9 @@ function checkShift(c) { // shift from check time; 00:00-06:59 belongs to the pr
 }
 async function loadChecks() {
   const [rows, runs, enactRows] = await Promise.all([fetchAll("gas_weight_checks", "check_date", false), fetchAll("production_runs", "run_date"), fetchAll("enact_kpi", "summary_date", false).catch(() => [])]);
-  $("#enact-status").textContent = enactRows.length ? `— ${enactRows.length} shift/day summaries received` : "— nothing received yet; the receiver adds rows here automatically after each shift";
-  $("#enact-table tbody").innerHTML = enactRows.slice(0, 200).map(k => `<tr><td class="date">${localDate(new Date(k.summary_date))}</td><td>${k.shift_name || "day"}</td><td>${k.process_leaf || k.process_name}</td><td>${k.part_name}</td><td>${k.feature_name}</td><td class="num">${fmt(k.subgroup_count)}</td><td class="num">${fmt(k.piece_count)}</td><td class="num"><b>${fmt(k.mean, 2)}</b></td><td class="num">${fmt(k.sd_long_term, 2)}</td><td class="num">${fmt(k.oos_count)}</td><td>${new Date(k.received_at).toLocaleDateString()}</td></tr>`).join("") || `<tr><td colspan="11" class="empty">No Enact data yet.</td></tr>`;
+  const blendOnly = enactRows.filter(k => { const c = normCode(String(k.part_name || "").split(/[ -]/)[0]); const it = items.find(i => i.code === c); return !!it && it.gas_blend !== false; });
+  $("#enact-status").textContent = enactRows.length ? `— ${blendOnly.length} gas-blend shift/day summaries (${enactRows.length - blendOnly.length} other items ignored)` : "— nothing received yet; the receiver adds rows here automatically after each shift";
+  $("#enact-table tbody").innerHTML = blendOnly.slice(0, 200).map(k => `<tr><td class="date">${localDate(new Date(k.summary_date))}</td><td>${k.shift_name || "day"}</td><td>${k.process_leaf || k.process_name}</td><td>${k.part_name}</td><td>${k.feature_name}</td><td class="num">${fmt(k.subgroup_count)}</td><td class="num">${fmt(k.piece_count)}</td><td class="num"><b>${fmt(k.mean, 2)}</b></td><td class="num">${fmt(k.sd_long_term, 2)}</td><td class="num">${fmt(k.oos_count)}</td><td>${new Date(k.received_at).toLocaleDateString()}</td></tr>`).join("") || `<tr><td colspan="11" class="empty">No Enact data yet.</td></tr>`;
   const w = rows.map(r => Number(r.weight_g)).filter(x => !isNaN(x) && x > 0).sort((a, b) => a - b);
   const mean = w.reduce((a, b) => a + b, 0) / (w.length || 1), med = w.length ? w[Math.floor(w.length / 2)] : null;
   $("#checks-stats").innerHTML = `<span>Readings <b>${fmt(w.length)}</b></span><span>Mean <b>${fmt(mean, 2)} g</b></span><span>Median <b>${fmt(med, 2)} g</b></span><span>Min <b>${fmt(w[0], 1)} g</b></span><span>Max <b>${fmt(w[w.length - 1], 1)} g</b></span>`;
@@ -395,10 +396,12 @@ async function computeShiftRows(lines, from, to) {
     fetchAll("gas_weight_checks", "check_date").catch(() => []),
     fetchAll("enact_kpi", "summary_date").catch(() => []),
   ]);
-  // Enact per-shift means: key line|date|shift -> { g, n, item }
+  // Enact per-shift means: key line|date|shift -> { g, n, item } (gas-blend items only)
   const enact = {};
+  const isBlendPart = (name) => { const c = normCode(String(name || "").split(/[ -]/)[0]); const it = items.find(i => i.code === c); return !!it && it.gas_blend !== false; };
   enactRaw.forEach(k => {
     if (!/gas|weight/i.test(k.feature_name || "")) return;
+    if (!isBlendPart(k.part_name)) return;
     const line = /\bD\b|D Line|D-Line/i.test(k.process_name) ? "D" : /\bC\b|C Line|C-Line/i.test(k.process_name) ? "C" : null; if (!line) return;
     const sh = k.shift_name ? (/3|third|3rd|night/i.test(k.shift_name) ? 3 : /2|second|2nd|even|swing/i.test(k.shift_name) ? 2 : 1) : null; if (!sh) return;
     const d = localDate(new Date(k.summary_date)); const key = `${line}|${d}|${sh}`; const n = Number(k.piece_count) || 0, m = Number(k.mean);

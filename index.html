@@ -33,7 +33,7 @@
         <a href="#analysis" data-page="analysis">Analysis</a>
         <a href="#runs" data-page="runs" class="admin-only">Production runs</a>
         <a href="#readings" data-page="readings" class="admin-only">Meter readings</a>
-        <a href="#checks" data-page="checks" class="admin-only">Gas weight checks</a>
+        <a href="#checks" data-page="checks" class="admin-only">Line gas weight check</a>
         <a href="#items" data-page="items">Items</a>
         <a href="#convert" data-page="convert">Conversions</a>
       </nav>
@@ -233,7 +233,7 @@
 
     <!-- CHECKS -->
     <section id="page-checks" class="page hidden">
-      <header class="page-head"><h1>Gas weight checks</h1><button id="checks-export" class="secondary">Export CSV</button></header>
+      <header class="page-head"><h1>Line gas weight check</h1><button id="checks-export" class="secondary">Export CSV</button></header>
       <p class="lede">Enter one row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before/after if you leave it blank. Export gives the whole table.</p>
       <form id="check-form" class="entry">
         <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
@@ -253,6 +253,7 @@
       </form>
       <div class="stats" id="checks-stats"></div>
       <h2>From Enact <small class="hint" id="enact-status"></small></h2>
+      <p class="hint">Only gas-blend items are shown; anything else the Gasser processes publish is ignored.</p>
       <table id="enact-table" class="data compact">
         <thead><tr><th>Date</th><th>Shift</th><th>Process</th><th>Part</th><th>Feature</th><th class="num">Subgroups</th><th class="num">Pieces</th><th class="num">Mean g</th><th class="num">SD</th><th class="num">OOS</th><th>Received</th></tr></thead>
         <tbody></tbody>
