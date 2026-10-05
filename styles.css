@@ -321,3 +321,7 @@ table.data tr.run.selected td:first-child { box-shadow: inset 4px 0 0 var(--wast
 /* guest (read-only) mode */
 body.guest .admin-only, body.guest #items-table td.actions button, body.guest #item-form { display: none !important; }
 body.guest #items-table td.actions { width: 0; padding: 0; }
+
+/* shown only when the site runs inside an iframe (SharePoint embed) */
+.open-full { font-size: 0.85rem; font-weight: 600; color: var(--primary); text-decoration: none; white-space: nowrap; margin-right: 0.6rem; transition: color var(--ease); }
+.open-full:hover { color: var(--navy); text-decoration: underline; text-underline-offset: 4px; }

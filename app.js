@@ -68,6 +68,9 @@ window.addEventListener("scroll", () => document.body.classList.toggle("scrolled
 const ADMIN_PAGES = ["runs", "readings", "checks"];
 function role() { return sessionStorage.getItem("gaslog-role"); }
 function applyRole() { const guest = role() === "guest"; document.body.classList.toggle("guest", guest); $("#signout").textContent = guest ? "Sign out (guest)" : "Sign out"; }
+// when embedded (e.g. a SharePoint Embed web part), offer a link to open the site in its own tab
+const EMBEDDED = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+if (EMBEDDED) { const show = () => $("#open-full")?.classList.remove("hidden"); document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", show) : show(); }
 async function boot() {
   if (!sb) return;
   if (role()) { applyRole(); showApp(); } else showSignin();
