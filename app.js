@@ -257,11 +257,33 @@ function checkShift(c) { // shift from check time; 00:00-06:59 belongs to the pr
   if (hr < 7) { const t = new Date(d + "T12:00:00"); t.setDate(t.getDate() - 1); d = localDate(t); }
   return { date: d, shift: sh };
 }
+// Enact rows -> gas weight per line/date/shift. Only the gas-weight feature counts (not gas pressure or can weights).
+// Parts: gas-blend items, or a generic part like "Regular Cream"; known non-blend item codes are left out.
+// Shift summaries arrive just after the shift ends, so shift 3 (ends 07:00) belongs to the previous day;
+// daily summaries are stamped at midnight UTC, so their date is read in UTC.
+function enactGasRows(enactRows) {
+  return (enactRows || []).map(k => {
+    const feat = String(k.feature_name || "").trim();
+    if (!/^(operating )?gas weight$/i.test(feat)) return null;
+    const part = String(k.part_name || "").trim(), code = normCode(part.split(/[ -]/)[0]);
+    const it = items.find(i => i.code === code);
+    if (it ? it.gas_blend === false : /^[A-Z]{2}\d+/i.test(part)) return null;
+    const pn = String(k.process_name || "");
+    const line = /D Line|D-Line|Aerosol D|Gasser D|\bD\b/i.test(pn) ? "D" : /C Line|C-Line|Aerosol C|Gasser C|\bC\b/i.test(pn) ? "C" : null;
+    if (!line) return null;
+    const sh = k.shift_name ? (/3|third|3rd|night/i.test(k.shift_name) ? 3 : /2|second|2nd|even|swing/i.test(k.shift_name) ? 2 : 1) : null;
+    const t = new Date(k.summary_date); let date;
+    if (sh) { if (sh === 3 && t.getHours() < 12) t.setDate(t.getDate() - 1); date = localDate(t); }
+    else date = String(k.summary_date).slice(0, 10);
+    return { ...k, line, shift: sh, date, item: it ? code : part, gasser: k.process_leaf || pn };
+  }).filter(Boolean);
+}
 async function loadChecks() {
   const [rows, runs, enactRows] = await Promise.all([fetchAll("gas_weight_checks", "check_date", false), fetchAll("production_runs", "run_date"), fetchAll("enact_kpi", "summary_date", false).catch(() => [])]);
-  const blendOnly = enactRows.filter(k => { const c = normCode(String(k.part_name || "").split(/[ -]/)[0]); const it = items.find(i => i.code === c); return !!it && it.gas_blend !== false; });
-  $("#enact-status").textContent = enactRows.length ? `— ${blendOnly.length} gas-blend shift/day summaries (${enactRows.length - blendOnly.length} other items ignored)` : "— nothing received yet; the receiver adds rows here automatically after each shift";
-  $("#enact-table tbody").innerHTML = blendOnly.slice(0, 200).map(k => `<tr><td class="date">${localDate(new Date(k.summary_date))}</td><td>${k.shift_name || "day"}</td><td>${k.process_leaf || k.process_name}</td><td>${k.part_name}</td><td>${k.feature_name}</td><td class="num">${fmt(k.subgroup_count)}</td><td class="num">${fmt(k.piece_count)}</td><td class="num"><b>${fmt(k.mean, 2)}</b></td><td class="num">${fmt(k.sd_long_term, 2)}</td><td class="num">${fmt(k.oos_count)}</td><td>${new Date(k.received_at).toLocaleDateString()}</td></tr>`).join("") || `<tr><td colspan="11" class="empty">No Enact data yet.</td></tr>`;
+  const gasRows = enactGasRows(enactRows).filter(k => k.shift).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line) || String(a.gasser).localeCompare(String(b.gasser)));
+  const ignored = enactRows.length - enactGasRows(enactRows).length;
+  $("#enact-status").textContent = enactRows.length ? `— ${gasRows.length} shift summaries of gas weight (${ignored} other rows ignored: pressure, can weights, Taptone, non-blend items)` : "— nothing received yet; the receiver adds rows here automatically after each shift";
+  $("#enact-table tbody").innerHTML = gasRows.slice(0, 200).map(k => `<tr><td class="date">${k.date}</td><td>${k.shift}</td><td>${k.line} · ${k.gasser}</td><td>${k.item}</td><td class="num">${fmt(k.subgroup_count)}</td><td class="num">${fmt(k.piece_count)}</td><td class="num"><b>${fmt(k.mean, 2)}</b></td><td class="num">${fmt(k.sd_long_term, 2)}</td><td class="num">${fmt(k.oos_count)}</td></tr>`).join("") || `<tr><td colspan="9" class="empty">No gas weight data from Enact yet.</td></tr>`;
   const w = rows.map(r => Number(r.weight_g)).filter(x => !isNaN(x) && x > 0).sort((a, b) => a - b);
   const mean = w.reduce((a, b) => a + b, 0) / (w.length || 1), med = w.length ? w[Math.floor(w.length / 2)] : null;
   $("#checks-stats").innerHTML = `<span>Readings <b>${fmt(w.length)}</b></span><span>Mean <b>${fmt(mean, 2)} g</b></span><span>Median <b>${fmt(med, 2)} g</b></span><span>Min <b>${fmt(w[0], 1)} g</b></span><span>Max <b>${fmt(w[w.length - 1], 1)} g</b></span>`;
@@ -401,14 +423,10 @@ async function computeShiftRows(lines, from, to) {
   ]);
   // Enact per-shift means: key line|date|shift -> { g, n, item } (gas-blend items only)
   const enact = {};
-  const isBlendPart = (name) => { const c = normCode(String(name || "").split(/[ -]/)[0]); const it = items.find(i => i.code === c); return !!it && it.gas_blend !== false; };
-  enactRaw.forEach(k => {
-    if (!/gas|weight/i.test(k.feature_name || "")) return;
-    if (!isBlendPart(k.part_name)) return;
-    const line = /\bD\b|D Line|D-Line/i.test(k.process_name) ? "D" : /\bC\b|C Line|C-Line/i.test(k.process_name) ? "C" : null; if (!line) return;
-    const sh = k.shift_name ? (/3|third|3rd|night/i.test(k.shift_name) ? 3 : /2|second|2nd|even|swing/i.test(k.shift_name) ? 2 : 1) : null; if (!sh) return;
-    const d = localDate(new Date(k.summary_date)); const key = `${line}|${d}|${sh}`; const n = Number(k.piece_count) || 0, m = Number(k.mean);
-    const o = enact[key] = enact[key] || { sum: 0, n: 0, items: new Set() }; o.sum += m * n; o.n += n; o.items.add(normCode(String(k.part_name).split(/[ -]/)[0]));
+  enactGasRows(enactRaw).forEach(k => {
+    if (!k.shift) return;
+    const key = `${k.line}|${k.date}|${k.shift}`; const n = Number(k.piece_count) || 0, m = Number(k.mean); if (!(n > 0) || isNaN(m)) return;
+    const o = enact[key] = enact[key] || { sum: 0, n: 0, items: new Set() }; o.sum += m * n; o.n += n; o.items.add(k.item);
   });
   // paperwork: mean measured gas weight per line + date + shift (check_time decides the shift; 00:00-06:59 belongs to previous day's shift 3)
   const paper = {};
