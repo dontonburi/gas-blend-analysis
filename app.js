@@ -258,7 +258,7 @@ function checkShift(c) { // shift from check time; 00:00-06:59 belongs to the pr
   return { date: d, shift: sh };
 }
 // Enact rows -> gas weight per line/date/shift. Only the gas-weight feature counts (not gas pressure or can weights).
-// Parts: gas-blend items, or a generic part like "Regular Cream"; known non-blend item codes are left out.
+// Parts: only gas-blend items on the Items list; anything else (e.g. "Regular Cream", non-blend codes) is ignored.
 // Shift summaries arrive just after the shift ends, so shift 3 (ends 07:00) belongs to the previous day;
 // daily summaries are stamped at midnight UTC, so their date is read in UTC.
 function enactGasRows(enactRows) {
@@ -267,7 +267,7 @@ function enactGasRows(enactRows) {
     if (!/^(operating )?gas weight$/i.test(feat)) return null;
     const part = String(k.part_name || "").trim(), code = normCode(part.split(/[ -]/)[0]);
     const it = items.find(i => i.code === code);
-    if (it ? it.gas_blend === false : /^[A-Z]{2}\d+/i.test(part)) return null;
+    if (!it || it.gas_blend === false) return null;   // gas-blend items from the Items list only
     const pn = String(k.process_name || "");
     const line = /D Line|D-Line|Aerosol D|Gasser D|\bD\b/i.test(pn) ? "D" : /C Line|C-Line|Aerosol C|Gasser C|\bC\b/i.test(pn) ? "C" : null;
     if (!line) return null;
@@ -283,7 +283,7 @@ async function loadChecks() {
   // shift summaries plus the daily roll-up (shown as "Day"); only shift rows feed the waste-factor target
   const gasRows = enactGasRows(enactRows).sort((a, b) => b.date.localeCompare(a.date) || (b.shift || 9) - (a.shift || 9) || a.line.localeCompare(b.line) || String(a.gasser).localeCompare(String(b.gasser)) || String(a.item).localeCompare(String(b.item)));
   const ignored = enactRows.length - enactGasRows(enactRows).length;
-  $("#enact-status").textContent = enactRows.length ? `— ${gasRows.filter(k => k.shift).length} shift and ${gasRows.filter(k => !k.shift).length} daily summaries of gas weight (${ignored} other rows ignored: pressure, can weights, Taptone, non-blend items)` : "— nothing received yet; the receiver adds rows here automatically after each shift";
+  $("#enact-status").textContent = enactRows.length ? `— ${gasRows.filter(k => k.shift).length} shift and ${gasRows.filter(k => !k.shift).length} daily summaries of gas weight (${ignored} other rows ignored: pressure, can weights, Taptone, parts not on the gas-blend Items list)` : "— nothing received yet; the receiver adds rows here automatically after each shift";
   $("#enact-table tbody").innerHTML = gasRows.slice(0, 200).map(k => `<tr><td class="date">${k.date}</td><td>${k.shift || "Day"}</td><td>${k.line} · ${k.gasser}</td><td>${k.item}</td><td class="num">${fmt(k.subgroup_count)}</td><td class="num">${fmt(k.piece_count)}</td><td class="num"><b>${fmt(k.mean, 2)}</b></td><td class="num">${fmt(k.sd_long_term, 2)}</td><td class="num">${fmt(k.oos_count)}</td></tr>`).join("") || `<tr><td colspan="9" class="empty">No gas weight data from Enact yet.</td></tr>`;
   const w = rows.map(r => Number(r.weight_g)).filter(x => !isNaN(x) && x > 0).sort((a, b) => a - b);
   const mean = w.reduce((a, b) => a + b, 0) / (w.length || 1), med = w.length ? w[Math.floor(w.length / 2)] : null;
