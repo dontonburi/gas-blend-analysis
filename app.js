@@ -78,7 +78,7 @@ function chartBase(extra) {
 const charts = {};
 const chartIO = window.IntersectionObserver ? new IntersectionObserver((entries) => entries.forEach(en => { if (en.isIntersecting) { const c = Object.values(charts).find(x => x.el === en.target); if (c && !c.inst) initChart(c); } }), { rootMargin: "0px 0px -8% 0px", threshold: .15 }) : null;
 function initChart(c) {
-  if (typeof echarts === "undefined") { c.el.closest(".chart-wrap")?.classList.add("empty"); return; }
+  if (typeof echarts === "undefined") { c.el.closest(".chart-wrap")?.classList.add("nolib"); return; }
   c.inst = echarts.init(c.el, null, { renderer: "canvas" });
   c.inst.on("click", (p) => c.handlers.click && c.handlers.click(p));
   chartIO && chartIO.unobserve(c.el);

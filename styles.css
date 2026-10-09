@@ -260,6 +260,7 @@ a.tk-item:hover, a.tk-item:focus-visible { color: var(--sky); }
 .chart-wrap.loading::after { content: "Loading…"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-2); font-size: .9rem; background: linear-gradient(100deg, transparent 30%, rgba(212,241,255,.35) 50%, transparent 70%) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; border-radius: inherit; }
 .chart-wrap.empty::after { content: "No shifts in this range."; position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-2); font-size: .9rem; }
 @keyframes shimmer { to { background-position: -200% 0; } }
+.chart-wrap.nolib::after { content: "The chart library didn't load on this network, so charts can't be drawn. The tables below still work."; position: absolute; inset: 0; display: grid; place-items: center; padding: 2rem; text-align: center; color: var(--ink-2); font-size: .9rem; }
 @media (max-width: 700px) { .chart-wrap { height: 340px; padding: .6rem .4rem .4rem; } .chart-wrap.tall { height: 400px; } .chart-wrap.tall.with-cpm { height: 520px; } }
 
 /* ---------- tables ---------- */
