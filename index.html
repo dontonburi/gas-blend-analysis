@@ -2,302 +2,342 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Gas Blend Runs</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<svg class="defs-host" aria-hidden="true" focusable="false"><defs><symbol id="mark" viewBox="-1 -1 17 19"><path d="M14.33 3.697c.715 2.667-.89 5.415-3.586 6.137a5 5 0 0 1-.833.15l.019.068c.715 2.667-.89 5.415-3.586 6.137-2.695.723-5.46-.854-6.174-3.521C-.545 10 1.06 7.252 3.756 6.53q.418-.111.834-.15l-.02-.068C3.856 3.645 5.46.897 8.156.175s5.46.855 6.175 3.522"/></symbol></defs></svg>
 
 <div id="signin" class="signin">
   <form id="signin-form" class="signin-card">
-    <img class="signin-logo" id="logo-img-signin" alt="Alamance Foods" onerror="this.remove()">
+    <svg class="signin-mark" aria-hidden="true"><use href="#mark"/></svg>
+    <span class="eyebrow"><i></i>Alamance Foods</span>
     <h1>Gas Blend Runs</h1>
     <p>Enter the password to continue. Colleagues can use the guest password for read-only access.</p>
-    <label>Password <input type="password" id="password" autocomplete="off" required autofocus></label>
-    <button type="submit" class="primary">Open</button>
+    <label for="password">Password</label>
+    <input class="input" type="password" id="password" autocomplete="off" required autofocus>
+    <button type="submit" class="btn">Open</button>
     <p id="signin-error" class="error"></p>
   </form>
 </div>
 
 <div id="app" class="app hidden">
   <header class="site-header">
-    <div class="container">
-      <a class="site-logo" href="#dashboard" aria-label="Alamance Foods — Gas Blend Runs">
-        <img id="logo-img" alt="Alamance Foods" onerror="this.remove()">
-        <span class="wordmark">Gas Blend Runs</span>
+    <div class="hcont">
+      <a class="brand" href="#dashboard" aria-label="Gas Blend Runs, dashboard">
+        <svg class="brand-mark" aria-hidden="true"><use href="#mark"/></svg>
+        <span class="brand-text"><span class="brand-eyebrow">Alamance Foods</span><span class="brand-name">Gas Blend Runs</span></span>
       </a>
-      <nav class="site-nav">
+      <nav class="site-nav" id="siteNav" aria-label="Pages">
         <a href="#dashboard" data-page="dashboard" class="active">Dashboard</a>
         <a href="#analysis" data-page="analysis">Analysis</a>
         <a href="#runs" data-page="runs" class="admin-only">Production runs</a>
         <a href="#readings" data-page="readings" class="admin-only">Meter readings</a>
-        <a href="#checks" data-page="checks" class="admin-only">Line gas weight check</a>
+        <a href="#checks" data-page="checks" class="admin-only">Gas weight check</a>
         <a href="#items" data-page="items">Items</a>
         <a href="#convert" data-page="convert">Conversions</a>
       </nav>
-      <a id="open-full" class="open-full hidden" href="./" target="_blank" rel="noopener">Open full screen ↗</a>
-      <button id="signout" class="secondary small">Sign out</button>
+      <a id="open-full" class="btn secondary small hidden" href="./" target="_blank" rel="noopener">Open full screen ↗</a>
+      <button id="signout" class="btn secondary small" type="button">Sign out</button>
+      <button class="menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="siteNav">Menu</button>
     </div>
   </header>
 
-  <main>
-    <!-- DASHBOARD -->
+  <main class="wrap" id="main">
+
+    <!-- ======================= DASHBOARD ======================= -->
     <section id="page-dashboard" class="page">
-      <header class="page-head">
-        <h1>Consumption vs. production</h1>
-        <div class="range">
-          <label>Line <select id="dash-line"><option value="ALL">Both</option><option value="C">C</option><option value="D">D</option></select></label>
-          <label>From <input type="date" id="dash-from"></label>
-          <label>To <input type="date" id="dash-to"></label>
-          <label class="check"><input type="checkbox" id="dash-cpm"> Show avg CPM</label>
-          <button id="dash-refresh">Update</button>
-          <button id="dash-export" class="secondary">Export CSV</button>
+      <div class="lp-hero">
+        <span class="eyebrow"><i></i>C Line and D Line · N₂O / N₂ blend</span>
+        <h1 class="lp-title"><span class="lw"><span style="--i:0">Gas</span></span> <span class="lw"><span style="--i:1">Blend</span></span> <span class="lw"><span style="--i:2">Runs</span></span></h1>
+        <div class="lp-row">
+          <p class="lede">Blend gas metered against the gas that went into the cans, shift by shift.</p>
+          <div class="hero-actions"><a class="btn" href="#analysis">Open analysis</a><a class="btn secondary" href="#dash-shifts">Every shift</a></div>
         </div>
-      </header>
-      <p class="lede" id="dash-summary"></p>
-      <div class="chart-wrap"><canvas id="chart-waste"></canvas></div>
-      <div class="filters">
-        <label>Item <input type="text" id="f-item" placeholder="e.g. AD54 or Dunkin"></label>
-        <label>Shift <select id="f-shift"><option value="">Any</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
-        <label>Waste % ≥ <input type="number" id="f-wf" step="1" min="0" placeholder="any"></label>
-        <label>Efficiency ≤ <input type="number" id="f-eff" step="1" min="0" placeholder="any %"></label>
-        <button id="f-clear" class="secondary">Clear</button>
-        <span id="f-count" class="hint"></span>
       </div>
-      <table id="dash-table" class="data">
-        <thead><tr>
-          <th data-sort="line">Line</th><th data-sort="date">Date</th><th data-sort="shift">Shift</th><th data-sort="items">Items</th><th class="num" data-sort="cases">Cases</th><th class="num" data-sort="cans">Cans</th>
-          <th class="num" data-sort="totalLb">Total lb</th><th class="num" data-sort="volPct">N₂O % vol</th><th class="num" data-sort="avgCpm">Avg CPM</th><th class="num" data-sort="eff">Efficiency</th><th class="num" data-sort="gPerCan">g / can</th>
-          <th class="num" data-sort="wastePct">Waste %</th><th data-sort="basis">Basis</th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-      <p class="hint">Click a row for the full breakdown. Waste % = gas metered over the target: the target is the average gas weight from the paperwork (gas weight checks) for that line, date and shift when it exists, otherwise the items' BOM standard. Efficiency = cans produced ÷ cans the filler could make at setpoint (C 300 cpm, D 250 cpm) over the shift window. Shifts: 1 = 07:00–15:00, 2 = 15:00–23:00, 3 = 23:00–07:00 next day. Gas per shift is read off the totalizers at the shift boundaries; a shift shows “no meter data” when readings don't cover it.</p>
+      <nav class="ticker" id="ticker" aria-label="Live figures"><div class="tk-track"><ul class="tk-set"><li><span class="tk-item">Loading the latest figures…</span></li></ul></div></nav>
+
+      <section class="an-sec cards-sec" aria-label="Lines">
+        <div class="tool-grid" id="line-cards">
+          <div class="tool t-navy skel"></div><div class="tool t-sky skel"></div><div class="tool t-lime skel"></div>
+        </div>
+        <div class="dots" id="line-dots" aria-hidden="true"></div>
+      </section>
+
+      <div class="ctl" id="dash-ctl">
+        <div class="seg" id="dash-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on" aria-pressed="true">Both</button><button type="button" data-v="C" aria-pressed="false">C Line</button><button type="button" data-v="D" aria-pressed="false">D Line</button></div>
+        <button type="button" class="ctl-more" id="dash-more" aria-expanded="false">Dates</button>
+        <div class="ctl-rest">
+          <label class="field"><span>From</span><input class="input" type="date" id="dash-from"></label>
+          <label class="field"><span>To</span><input class="input" type="date" id="dash-to"></label>
+          <button type="button" class="fchip" id="dash-cpm" aria-pressed="false">Filler speed</button>
+          <button type="button" id="dash-export" class="btn secondary small">Export CSV</button>
+        </div>
+      </div>
+
+      <section class="an-sec reveal" aria-labelledby="h-waste">
+        <h2 id="h-waste">Waste by shift</h2>
+        <p class="lede" id="dash-summary">Loading shifts…</p>
+        <div class="chart-wrap tall"><div class="chart" id="chart-waste"></div></div>
+        <p class="note">Each bar is one shift: gas metered over its target. Drag the slider (or hold Shift and scroll) to zoom; click a bar to open that shift in the table.</p>
+      </section>
+
+      <section class="an-sec reveal" id="dash-shifts" aria-labelledby="h-shifts">
+        <h2 id="h-shifts">Every shift</h2>
+        <div class="filters">
+          <label class="field"><span>Item</span><input class="input" type="text" id="f-item" placeholder="AD54 or Dunkin"></label>
+          <label class="field"><span>Shift</span><select class="input" id="f-shift"><option value="">Any</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+          <label class="field"><span>Waste % at least</span><input class="input" type="number" id="f-wf" step="1" min="0" placeholder="any"></label>
+          <label class="field"><span>Efficiency at most</span><input class="input" type="number" id="f-eff" step="1" min="0" placeholder="any %"></label>
+          <button type="button" id="f-clear" class="btn secondary small">Clear</button>
+          <span id="f-count" class="note"></span>
+        </div>
+        <div class="tbl-wrap">
+          <table id="dash-table" class="data">
+            <thead><tr>
+              <th data-sort="line">Line</th><th data-sort="date">Date</th><th data-sort="shift">Shift</th><th data-sort="items">Items</th><th class="num" data-sort="cases">Cases</th><th class="num" data-sort="cans">Cans</th>
+              <th class="num" data-sort="totalLb">Total lb</th><th class="num" data-sort="volPct">N₂O % vol</th><th class="num" data-sort="avgCpm">Avg CPM</th><th class="num" data-sort="eff">Efficiency</th><th class="num" data-sort="gPerCan">g / can</th>
+              <th class="num" data-sort="wastePct">Waste %</th><th data-sort="basis">Basis</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="note">Click a row for the full breakdown.</p>
+      </section>
+
+      <section class="an-sec reveal" id="methods" aria-labelledby="h-methods">
+        <div class="sec-head"><div><h2 id="h-methods">How we calculate</h2><p class="lede">The rules behind every number on this site.</p></div></div>
+        <div class="faq-list">
+          <details class="qa"><summary>Which shift does a reading belong to?</summary><div class="ans"><p>Shift 1 runs 07:00–15:00, shift 2 15:00–23:00 and shift 3 23:00–07:00 the next day. Gas for a shift is read off the totalizers at those boundaries. A gas weight check written before 07:00 counts toward the previous day's shift 3. A shift shows "no meter data" when the readings don't cover it.</p></div></details>
+          <details class="qa"><summary>How does the meter's scf become pounds?</summary><div class="ans"><p>The blender reports standard cubic feet for each gas. One scf of N₂O weighs 0.116 lb and one scf of N₂ weighs 0.0739 lb. The blend ratio is by volume, so a blend set to 85% N₂O by volume is 89.9% N₂O by mass.</p></div></details>
+          <details class="qa"><summary>Where does each shift's target come from?</summary><div class="ans"><p>In order of preference: the average of that line, date and shift's paper gas weight checks; then Enact's operating gas weight for that shift (gas-blend items only); then the items' BOM gas per can. The table's Basis column says which one was used.</p></div></details>
+          <details class="qa"><summary>What does waste % mean?</summary><div class="ans"><p>Waste % = (gas metered − target) ÷ target. Target = cans filled × target grams per can. 0% means the meter matches what went into the cans; 50% means half as much gas again went somewhere other than a can.</p></div></details>
+          <details class="qa"><summary>How is efficiency worked out?</summary><div class="ans"><p>Cans produced ÷ the cans the filler could make at its setpoint over the shift window (C Line 300 cans a minute, D Line 250). Cases are converted to cans with each item's EQV, so a 6-pack case counts 6 cans.</p></div></details>
+          <details class="qa"><summary>What counts as a gas event?</summary><div class="ans"><p>Times the blend system was open with no gas-blend production: startup before the first can (expected), downtime stops of 30 minutes or more, end of schedule including CIP, and changeovers to non-gas items. The last three are the opportunity, because closing the blend would have saved that gas outright.</p></div></details>
+        </div>
+      </section>
     </section>
 
-    <!-- ANALYSIS -->
+    <!-- ======================= ANALYSIS ======================= -->
     <section id="page-analysis" class="page hidden">
-      <header class="page-head an-head">
-        <h1>Analysis</h1>
-        <div class="range">
-          <div class="seg" id="an-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on">Both</button><button type="button" data-v="C">C</button><button type="button" data-v="D">D</button></div>
-          <label>Item <select id="an-item"><option value="">All items</option></select></label>
-          <label>From <input type="date" id="an-from"></label>
-          <label>To <input type="date" id="an-to"></label>
-          <button id="an-refresh">Update</button>
-          <button id="an-export" class="secondary">Export items CSV</button>
-        </div>
-      </header>
-      <p class="lede" id="an-count"></p>
+      <div class="page-head band navy">
+        <span class="eyebrow"><i></i>Analysis</span>
+        <h1>Where the gas goes</h1>
+        <p class="lede" id="an-count">Loading…</p>
+      </div>
       <div id="an-sentinel"></div>
-
-      <div class="an-layout">
-      <nav class="an-index" aria-label="Analysis sections">
-        <a href="#an-sec-lines" data-target="an-sec-lines">Overview</a>
-        <a href="#an-sec-trend" data-target="an-sec-trend">Trend</a>
-        <a href="#an-sec-eff" data-target="an-sec-eff">Efficiency</a>
-        <a href="#an-sec-start" data-target="an-sec-start">Start of run</a>
-        <a href="#an-sec-items" data-target="an-sec-items">By item</a>
-        <a href="#an-sec-events" data-target="an-sec-events">Improvement</a>
-        <a href="#an-sec-nolog" data-target="an-sec-nolog">Not logged</a>
-      </nav>
-      <div class="an-body">
-
-      <section class="an-sec reveal">
-      <h2 id="an-sec-lines">Performance by line</h2>
-      <p class="lede">Gas metered against the target for every gas-blend shift in the period, per line. The target for each shift is the paperwork average where gas weight checks exist, otherwise the BOM standard.</p>
-      <div class="kpis" id="an-lines"></div>
-      </section>
-
-      <section class="an-sec reveal">
-      <h2 id="an-sec-trend">Is it improving?</h2>
-      <p class="lede" id="an-trend-text"></p>
-      <div class="chart-wrap short"><canvas id="an-chart-trend"></canvas></div>
-      <table class="data compact" id="an-weeks">
-        <thead><tr><th>Week starting</th><th>Line</th><th class="num">Shifts</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Waste %</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      </section>
-
-      <section class="an-sec reveal">
-      <h2 id="an-sec-eff">Efficiency vs waste</h2>
-      <p class="lede">Each dot is a full shift. Across the bottom is how fast the filler actually ran, as a share of its maximum speed (C 300 cpm, D 250 cpm); up the side is gas over target. The fixed bleed is spread over fewer cans when the line runs slowly, which is why waste climbs steeply on the left. Click a dot for that shift; click a legend entry to hide a series.</p>
-      <div class="chart-wrap short"><canvas id="an-chart-eff"></canvas></div>
-      <div id="an-eff-detail" class="pick hidden"></div>
-      <div class="kpis" id="an-eff-kpis"></div>
-      </section>
-
-      <section class="an-sec reveal">
-      <h2 id="an-sec-start">Start of run</h2>
-      <p class="lede" id="an-start-text"></p>
-      <div class="chart-wrap short"><canvas id="an-chart-start"></canvas></div>
-      <div class="kpis" id="an-start-kpis"></div>
-      <table class="data compact" id="an-start-table">
-        <thead><tr><th>Run</th><th>Line</th><th>Items</th><th class="num">First shift waste</th><th class="num">Rest of run</th><th class="num">First-shift filler</th><th class="num">Rest of run</th><th class="num">Extra gas in first shift</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      </section>
-
-      <section class="an-sec reveal">
-      <h2 id="an-sec-items">Performance by item</h2>
-      <p class="lede">When several items run in one shift the meter can't separate them, so that shift's gas is split between them in proportion to cans filled ("shared" shifts). Click an item — in the chart or the table — to list every shift it ran.</p>
-      <div class="chart-wrap short"><canvas id="an-chart-items"></canvas></div>
-      <table class="data compact" id="an-items">
-        <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Target g</th><th class="num">Waste %</th><th class="num">vs BOM only</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      </section>
-
-      <section class="an-sec reveal">
-      <h2 id="an-sec-events">Room for improvement — blend system left open</h2>
-      <p class="lede">Times the blend system was open with no gas-blend production, grouped by cause. Startup is the gas it takes to bring the system up before the first can and is expected. Downtime covers stops of 30 minutes or more during a run where the filler wasn't running; end of schedule and changeover are the moments where closing the blend would have saved the gas outright. Click a bar or a card to filter the list.</p>
-      <div class="chart-wrap short"><canvas id="an-chart-events"></canvas></div>
-      <div class="kpis five" id="an-events-kpis"></div>
-      <p class="hint" id="an-events-filter"></p>
-      <table class="data compact" id="an-events">
-        <thead><tr><th>Category</th><th>Line</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th>What happened</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <p class="hint">Downtime rows marked "detected" come from the filler and meter data automatically; the rest were confirmed on the floor.</p>
-      </section>
-
-      <section class="an-sec reveal">
-      <h2 id="an-sec-nolog">Gas with no production logged</h2>
-      <p class="lede">Shifts where the meter recorded gas flow but no gas-blend production run is entered for that line, date and shift, and no event covers them. Either the cases weren't logged, or the line was sitting with gas up. Kept as a standing check even when empty.</p>
-      <table class="data compact" id="an-idle">
-        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Meter coverage</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th>Likely</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <p class="lede" id="an-idle-text"></p>
-      </section>
-
+      <div class="ctl an-head" id="an-ctl">
+        <div class="seg" id="an-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on" aria-pressed="true">Both</button><button type="button" data-v="C" aria-pressed="false">C Line</button><button type="button" data-v="D" aria-pressed="false">D Line</button></div>
+        <button type="button" class="ctl-more" id="an-more" aria-expanded="false">Filters</button>
+        <div class="ctl-rest">
+          <label class="field"><span>Item</span><select class="input" id="an-item"><option value="">All items</option></select></label>
+          <label class="field"><span>From</span><input class="input" type="date" id="an-from"></label>
+          <label class="field"><span>To</span><input class="input" type="date" id="an-to"></label>
+          <button type="button" id="an-export" class="btn secondary small">Export items CSV</button>
+        </div>
       </div>
+
+      <div class="with-index">
+        <nav class="sec-index" id="an-index" aria-label="Analysis sections">
+          <a href="#an-sec-lines" data-target="an-sec-lines" class="on">Overview</a>
+          <a href="#an-sec-trend" data-target="an-sec-trend">Trend</a>
+          <a href="#an-sec-eff" data-target="an-sec-eff">Efficiency</a>
+          <a href="#an-sec-start" data-target="an-sec-start">Start of run</a>
+          <a href="#an-sec-items" data-target="an-sec-items">By item</a>
+          <a href="#an-sec-events" data-target="an-sec-events">Room to improve</a>
+          <a href="#an-sec-nolog" data-target="an-sec-nolog">Not logged</a>
+        </nav>
+        <div class="an-body">
+
+          <section class="an-sec reveal">
+            <h2 id="an-sec-lines">Performance by line</h2>
+            <p class="lede">Gas metered against the target for every gas-blend shift in the period. The target for each shift is the paperwork average where gas weight checks exist, then Enact, then the BOM standard.</p>
+            <div class="kpis" id="an-lines"></div>
+          </section>
+
+          <section class="an-sec reveal">
+            <h2 id="an-sec-trend">Is it improving?</h2>
+            <p class="lede" id="an-trend-text"></p>
+            <div class="chart-wrap"><div class="chart" id="an-chart-trend"></div></div>
+            <details class="tbl-toggle"><summary>Week-by-week table</summary>
+              <div class="tbl-wrap"><table class="data compact" id="an-weeks">
+                <thead><tr><th>Week starting</th><th>Line</th><th class="num">Shifts</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Waste %</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+            </details>
+          </section>
+
+          <section class="an-sec reveal">
+            <h2 id="an-sec-eff">Efficiency vs waste</h2>
+            <p class="lede">Each dot is a full shift. Across the bottom is how fast the filler actually ran, as a share of its maximum (C 300 cpm, D 250 cpm); up the side is gas over target. The fixed bleed is spread over fewer cans when the line runs slowly, which is why waste climbs on the left. Click a dot for that shift.</p>
+            <div class="chart-wrap"><div class="chart" id="an-chart-eff"></div></div>
+            <div id="an-eff-detail" class="pick hidden"></div>
+            <div class="kpis" id="an-eff-kpis"></div>
+          </section>
+
+          <section class="an-sec reveal">
+            <h2 id="an-sec-start">Start of run</h2>
+            <p class="lede" id="an-start-text"></p>
+            <div class="chart-wrap"><div class="chart" id="an-chart-start"></div></div>
+            <div class="kpis" id="an-start-kpis"></div>
+            <div class="tbl-wrap"><table class="data compact" id="an-start-table">
+              <thead><tr><th>Run</th><th>Line</th><th>Items</th><th class="num">First shift waste</th><th class="num">Rest of run</th><th class="num">First-shift filler</th><th class="num">Rest of run</th><th class="num">Extra gas in first shift</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </section>
+
+          <section class="an-sec reveal">
+            <h2 id="an-sec-items">Performance by item</h2>
+            <p class="lede">When several items run in one shift the meter can't separate them, so that shift's gas is split between them by cans filled ("shared" shifts). Click an item in the chart or the table to list every shift it ran.</p>
+            <div class="chart-wrap"><div class="chart" id="an-chart-items"></div></div>
+            <div class="tbl-wrap"><table class="data compact" id="an-items">
+              <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Shifts</th><th class="num">Cases</th><th class="num">Cans</th><th class="num">Gas lb</th><th class="num">g / can</th><th class="num">Target g</th><th class="num">Waste %</th><th class="num">vs BOM only</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </section>
+
+          <section class="an-sec reveal">
+            <h2 id="an-sec-events">Room to improve: blend left open</h2>
+            <p class="lede">Times the blend system was open with no gas-blend production, grouped by cause. Startup is expected. End of schedule, changeover and downtime are where closing the blend would have saved the gas outright. Click a bar or a card to filter the list.</p>
+            <div class="chart-wrap short"><div class="chart" id="an-chart-events"></div></div>
+            <div class="kpis five" id="an-events-kpis"></div>
+            <p class="note" id="an-events-filter"></p>
+            <div class="tbl-wrap"><table class="data compact" id="an-events">
+              <thead><tr><th>Category</th><th>Line</th><th>From</th><th>To</th><th class="num">Hours</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th>What happened</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+            <p class="note">Rows marked "detected" come from the filler and meter data automatically; the rest were confirmed on the floor.</p>
+          </section>
+
+          <section class="an-sec reveal">
+            <h2 id="an-sec-nolog">Gas with no production logged</h2>
+            <p class="lede">Shifts where the meter recorded gas flow but no gas-blend production run is entered for that line, date and shift, and no event covers them. Either the cases weren't logged, or the line sat with gas up.</p>
+            <div class="tbl-wrap"><table class="data compact" id="an-idle">
+              <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Meter coverage</th><th class="num">Gas lb</th><th class="num">lb / hr</th><th class="num">N₂O % vol</th><th class="num">Avg CPM</th><th>Likely</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+            <p class="lede" id="an-idle-text"></p>
+          </section>
+
+        </div>
       </div>
+      <button type="button" class="si-pill" id="si-pill" aria-expanded="false" aria-controls="an-index"><span class="k">Section</span><span class="v" id="si-cur">Overview</span><i aria-hidden="true">▴</i></button>
     </section>
 
-    <!-- RUNS -->
+    <!-- ======================= RUNS ======================= -->
     <section id="page-runs" class="page hidden">
-      <header class="page-head"><h1>Production runs</h1><button id="runs-export" class="secondary">Export CSV</button></header>
+      <div class="page-head"><span class="eyebrow"><i></i>Data entry</span><h1>Production runs</h1><div class="acts"><button type="button" id="runs-export" class="btn secondary small">Export CSV</button></div></div>
       <form id="run-form" class="entry">
-        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <label>Date <input type="date" name="run_date" required></label>
-        <label>Shift
-          <select name="shift" required>
-            <option value="1">1 (07–15)</option><option value="2">2 (15–23)</option><option value="3">3 (23–07)</option>
-          </select>
-        </label>
-        <label>Item <select name="item_code" id="run-item"><option value="">— not recorded —</option></select></label>
-        <label>Cases <input type="number" name="cases" min="0" required></label>
-        <label>Cans / case <input type="number" name="cans_per_case" min="1" value="12" required></label>
-        <label class="wide">Notes <input type="text" name="notes"></label>
-        <button type="submit" class="primary">Save run</button>
+        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
+        <label class="field"><span>Date</span><input class="input" type="date" name="run_date" required></label>
+        <label class="field"><span>Shift</span><select class="input" name="shift" required><option value="1">1 (07–15)</option><option value="2">2 (15–23)</option><option value="3">3 (23–07)</option></select></label>
+        <label class="field"><span>Item</span><select class="input" name="item_code" id="run-item"><option value="">— not recorded —</option></select></label>
+        <label class="field"><span>Cases</span><input class="input" type="number" name="cases" min="0" required></label>
+        <label class="field"><span>Cans / case</span><input class="input" type="number" name="cans_per_case" min="1" value="12" required></label>
+        <label class="field wide"><span>Notes</span><input class="input" type="text" name="notes"></label>
+        <div class="form-actions"><button type="submit" class="btn">Save run</button></div>
       </form>
-      <table id="runs-table" class="data">
+      <div class="tbl-wrap"><table id="runs-table" class="data">
         <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item</th><th class="num">Cases</th><th class="num">Cans/case</th><th>Notes</th><th></th></tr></thead>
         <tbody></tbody>
-      </table>
+      </table></div>
     </section>
 
-    <!-- READINGS -->
+    <!-- ======================= READINGS ======================= -->
     <section id="page-readings" class="page hidden">
-      <header class="page-head"><h1>Meter readings</h1><button id="readings-export" class="secondary">Export CSV</button></header>
-      <p class="lede">Paste the meter export here — three columns: timestamp, N₂O totalizer scf, N₂ totalizer scf. Tab, comma, or semicolon separated; a header row is fine. Existing timestamps are skipped.</p>
+      <div class="page-head"><span class="eyebrow"><i></i>Data entry</span><h1>Meter readings</h1><p class="lede">Paste the meter export: timestamp, N₂O totalizer scf, N₂ totalizer scf. Tab, comma or semicolon separated; a header row is fine. Existing timestamps are skipped.</p><div class="acts"><button type="button" id="readings-export" class="btn secondary small">Export CSV</button></div></div>
       <form id="readings-form" class="entry">
-        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <label>Column order in paste
-          <select name="order"><option value="n2o_first">timestamp, N₂O, N₂ (C Line export)</option><option value="n2_first">timestamp, N₂, N₂O (D Line export)</option></select>
-        </label>
-        <textarea name="paste" rows="8" placeholder="2026-09-03 07:00:00	832658	358831"></textarea>
-        <button type="submit" class="primary">Import readings</button>
-        <span id="readings-status"></span>
+        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
+        <label class="field wide"><span>Column order in paste</span><select class="input" name="order"><option value="n2o_first">timestamp, N₂O, N₂ (C Line export)</option><option value="n2_first">timestamp, N₂, N₂O (D Line export)</option></select></label>
+        <textarea class="input" name="paste" rows="8" placeholder="2026-09-03 07:00:00	832658	358831"></textarea>
+        <div class="form-actions"><button type="submit" class="btn">Import readings</button><span id="readings-status" class="note"></span></div>
       </form>
-      <h2>Filler cans-per-minute</h2>
+      <h2>Filler cans per minute</h2>
       <form id="filler-form" class="entry">
-        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <textarea name="paste" rows="4" placeholder="timestamp, cans per minute   (for D Line paste D1 and D2 as two columns; they are summed)"></textarea>
-        <button type="submit" class="primary">Import filler readings</button>
+        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
+        <textarea class="input" name="paste" rows="4" placeholder="timestamp, cans per minute   (for D Line paste D1 and D2 as two columns; they are summed)"></textarea>
+        <div class="form-actions"><button type="submit" class="btn">Import filler readings</button></div>
       </form>
       <h2>Filler current downtime (minutes)</h2>
       <form id="downtime-form" class="entry">
-        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <textarea name="paste" rows="4" placeholder="timestamp, current downtime mins   (for D Line paste D1 and D2; the line counts as down only when both are)"></textarea>
-        <button type="submit" class="primary">Import downtime readings</button>
+        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
+        <textarea class="input" name="paste" rows="4" placeholder="timestamp, current downtime mins   (for D Line paste D1 and D2; the line counts as down only when both are)"></textarea>
+        <div class="form-actions"><button type="submit" class="btn">Import downtime readings</button></div>
       </form>
       <h2>By shift</h2>
-      <table id="readings-table" class="data">
+      <div class="tbl-wrap"><table id="readings-table" class="data">
         <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Coverage</th><th class="num">Points</th><th class="num">N₂O scf</th><th class="num">N₂ scf</th><th class="num">N₂O lb</th><th class="num">N₂ lb</th><th>Ratio (by volume)</th></tr></thead>
         <tbody></tbody>
-      </table>
+      </table></div>
     </section>
 
-    <!-- CHECKS -->
+    <!-- ======================= CHECKS ======================= -->
     <section id="page-checks" class="page hidden">
-      <header class="page-head"><h1>Line gas weight check</h1><button id="checks-export" class="secondary">Export CSV</button></header>
-      <p class="lede">Enter one row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before/after if you leave it blank. Export gives the whole table.</p>
+      <div class="page-head"><span class="eyebrow"><i></i>Data entry</span><h1>Line gas weight check</h1><p class="lede">Enter one row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before and after if you leave it blank.</p><div class="acts"><button type="button" id="checks-export" class="btn secondary small">Export CSV</button></div></div>
       <form id="check-form" class="entry">
-        <label>Line <select name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <label>Date <input type="date" name="check_date" required></label>
-        <label>Gasser <input type="number" name="gasser" min="1" max="9" required></label>
-        <label>Time <input type="text" name="check_time" placeholder="07:20"></label>
-        <label>Initials <input type="text" name="initials"></label>
-        <label>Operator <input type="text" name="operator"></label>
-        <label>Item <select name="item_code" id="check-item"><option value="">— from production run —</option></select></label>
-        <label>Can size <input type="text" name="can_size" value="18 oz"></label>
-        <label>Head <input type="number" name="head" min="1" max="18" required></label>
-        <label>Before g <input type="number" step="0.1" name="before_g"></label>
-        <label>After g <input type="number" step="0.1" name="after_g"></label>
-        <label>Weight g <input type="number" step="0.1" name="weight_g"></label>
-        <label>Correction g <input type="number" step="0.1" name="correction_g"></label>
-        <button type="submit" class="primary">Save head</button>
+        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
+        <label class="field"><span>Date</span><input class="input" type="date" name="check_date" required></label>
+        <label class="field"><span>Gasser</span><input class="input" type="number" name="gasser" min="1" max="9" required></label>
+        <label class="field"><span>Time</span><input class="input" type="text" name="check_time" placeholder="07:20"></label>
+        <label class="field"><span>Initials</span><input class="input" type="text" name="initials"></label>
+        <label class="field"><span>Operator</span><input class="input" type="text" name="operator"></label>
+        <label class="field"><span>Item</span><select class="input" name="item_code" id="check-item"><option value="">— from production run —</option></select></label>
+        <label class="field"><span>Can size</span><input class="input" type="text" name="can_size" value="18 oz"></label>
+        <label class="field"><span>Head</span><input class="input" type="number" name="head" min="1" max="18" required></label>
+        <label class="field"><span>Before g</span><input class="input" type="number" step="0.1" name="before_g"></label>
+        <label class="field"><span>After g</span><input class="input" type="number" step="0.1" name="after_g"></label>
+        <label class="field"><span>Weight g</span><input class="input" type="number" step="0.1" name="weight_g"></label>
+        <label class="field"><span>Correction g</span><input class="input" type="number" step="0.1" name="correction_g"></label>
+        <div class="form-actions"><button type="submit" class="btn">Save head</button></div>
       </form>
       <div class="stats" id="checks-stats"></div>
-      <h2>From Enact <small class="hint" id="enact-status"></small></h2>
-      <p class="hint">Operating gas weight per gasser and shift, published by Enact after each shift. Only parts on the gas-blend Items list are shown; anything else (e.g. “Regular Cream”), pressure and can weights are left out. When a shift has no paper check, its mean becomes the waste-factor target. “Day” rows are Enact's daily roll-up and catch checks from shifts whose own summary didn't arrive.</p>
-      <table id="enact-table" class="data compact">
+      <h2>From Enact <small class="note" id="enact-status"></small></h2>
+      <p class="note">Operating gas weight per gasser and shift, published by Enact after each shift. Only parts on the gas-blend Items list are shown. When a shift has no paper check, its mean becomes the waste-factor target. "Day" rows are Enact's daily roll-up and catch checks from shifts whose own summary didn't arrive.</p>
+      <div class="tbl-wrap"><table id="enact-table" class="data compact">
         <thead><tr><th>Date</th><th>Shift</th><th>Line · gasser</th><th>Part</th><th class="num">Subgroups</th><th class="num">Pieces</th><th class="num">Mean g</th><th class="num">SD</th><th class="num">OOS</th></tr></thead>
         <tbody></tbody>
-      </table>
+      </table></div>
       <h2>By item</h2>
       <p class="lede">Every reading grouped by the item that was running (from the item column, or the production run logged for that line, date and shift). Click an item to see its readings by shift below.</p>
-      <table id="checks-items" class="data compact">
+      <div class="tbl-wrap"><table id="checks-items" class="data compact">
         <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Readings</th><th class="num">Shifts</th><th class="num">Average g</th><th class="num">Median g</th><th class="num">Min g</th><th class="num">Max g</th><th class="num">Std dev</th><th class="num">BOM g/can</th><th class="num">vs BOM</th><th>Dates</th></tr></thead>
         <tbody></tbody>
-      </table>
-      <h2>By shift <small id="checks-shift-filter" class="hint"></small></h2>
-      <table id="checks-table" class="data compact">
+      </table></div>
+      <h2>By shift <small id="checks-shift-filter" class="note"></small></h2>
+      <div class="tbl-wrap"><table id="checks-table" class="data compact">
         <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item(s) run</th><th>Gasser</th><th>Check times</th><th class="num">Readings</th><th class="num">Avg g</th><th class="num">Median g</th><th class="num">Std dev</th><th class="num">Range g</th><th class="num">BOM g/can</th><th class="num">vs BOM</th><th class="num">Corrected</th></tr></thead>
         <tbody></tbody>
-      </table>
-      <p class="hint">A check is assigned to a shift by its time (07:00–15:00 = 1, 15:00–23:00 = 2, otherwise 3; checks before 07:00 count toward the previous day's third shift). "vs BOM" is the measured average against the BOM gas standard for the item(s) run that shift — positive means cans are getting more gas than the standard, negative less. "Corrected" counts heads where the operator wrote a correction. Individual readings aren't listed — use Export CSV for the full table.</p>
+      </table></div>
+      <p class="note">"vs BOM" is the measured average against the BOM gas standard for the item(s) run that shift: positive means cans are getting more gas than the standard. "Corrected" counts heads where the operator wrote a correction. Use Export CSV for every reading.</p>
     </section>
 
-    <!-- ITEMS -->
+    <!-- ======================= ITEMS ======================= -->
     <section id="page-items" class="page hidden">
-      <header class="page-head">
-        <h1>Items</h1>
-        <div class="range">
-          <label>Brand <select id="items-brand"><option value="">All brands</option></select></label>
-          <button id="items-add" class="secondary admin-only">Add item</button>
-          <button id="items-export" class="secondary">Export CSV</button>
+      <div class="page-head"><span class="eyebrow"><i></i>Reference</span><h1>Items</h1><p class="lede">Gas standards per item from the BOM (lb per case) and the same figures per can, which is what every calculation on the site uses. Ratio is N₂O by volume as the blender delivers it; the BOM's own N₂O / N₂ split is shown as a mass ratio for comparison.</p>
+        <div class="acts">
+          <label class="field"><span>Brand</span><select class="input" id="items-brand"><option value="">All brands</option></select></label>
+          <button type="button" id="items-add" class="btn secondary small admin-only">Add item</button>
+          <button type="button" id="items-export" class="btn secondary small">Export CSV</button>
         </div>
-      </header>
-      <p class="lede">Gas standards per item from the BOM (lb per case) and the same figures per can, which is what every calculation on the site uses. Ratio is N₂O by volume as the blender delivers it; the BOM's own N₂O/N₂ split is shown as a mass ratio for comparison.</p>
+      </div>
       <form id="item-form" class="entry hidden">
-        <label>Code <input type="text" name="code" required placeholder="AD54"></label>
-        <label>Brand <input type="text" name="brand"></label>
-        <label class="wide">Description <input type="text" name="description"></label>
-        <label>Cans / case <input type="number" name="cans_per_case" min="1"></label>
-        <label>BOM N₂O lb/case <input type="number" step="0.000001" name="n2o_lb_per_case"></label>
-        <label>BOM N₂ lb/case <input type="number" step="0.000001" name="n2_lb_per_case"></label>
-        <label>N₂O ratio by volume <input type="number" step="0.001" min="0" max="1" name="n2o_ratio_vol" placeholder="0.78"></label>
-        <label>Target g/can override <input type="number" step="0.01" name="target_gas_g" placeholder="blank = paperwork/BOM"></label>
-        <label class="wide">Notes <input type="text" name="notes"></label>
-        <div class="form-actions"><button type="submit" class="primary">Save item</button><button type="button" id="item-cancel" class="secondary">Cancel</button></div>
+        <label class="field"><span>Code</span><input class="input" type="text" name="code" required placeholder="AD54"></label>
+        <label class="field"><span>Brand</span><input class="input" type="text" name="brand"></label>
+        <label class="field wide"><span>Description</span><input class="input" type="text" name="description"></label>
+        <label class="field"><span>Cans / case</span><input class="input" type="number" name="cans_per_case" min="1"></label>
+        <label class="field"><span>BOM N₂O lb/case</span><input class="input" type="number" step="0.000001" name="n2o_lb_per_case"></label>
+        <label class="field"><span>BOM N₂ lb/case</span><input class="input" type="number" step="0.000001" name="n2_lb_per_case"></label>
+        <label class="field"><span>N₂O ratio by volume</span><input class="input" type="number" step="0.001" min="0" max="1" name="n2o_ratio_vol" placeholder="0.78"></label>
+        <label class="field"><span>Target g/can override</span><input class="input" type="number" step="0.01" name="target_gas_g" placeholder="blank = paperwork / BOM"></label>
+        <label class="field wide"><span>Notes</span><input class="input" type="text" name="notes"></label>
+        <div class="form-actions"><button type="submit" class="btn">Save item</button><button type="button" id="item-cancel" class="btn secondary">Cancel</button></div>
         <p id="item-error" class="error" style="grid-column:1/-1"></p>
       </form>
-      <table id="items-table" class="data compact">
+      <div class="tbl-wrap"><table id="items-table" class="data compact">
         <thead><tr>
           <th data-sort="code">Code</th><th data-sort="brand">Brand</th><th data-sort="description">Description</th><th class="num" data-sort="cans_per_case">Cans / case</th>
           <th class="num grp" data-sort="n2o_lb_per_case">N₂O lb/case</th><th class="num" data-sort="n2_lb_per_case">N₂ lb/case</th>
@@ -305,25 +345,25 @@
           <th class="num grp" data-sort="n2o_ratio_vol">Ratio (vol)</th><th class="num" data-sort="massR">BOM split (mass)</th><th></th>
         </tr></thead>
         <tbody></tbody>
-      </table>
-      <p class="hint">Per-can figures = lb/case × 453.592 ÷ cans per case. "BOM split (mass)" = N₂O ÷ (N₂O + N₂) from the BOM quantities — if it matches the ratio column numerically, the BOM was written by mass while the blender runs by volume. Hover a code for its notes.</p>
+      </table></div>
+      <p class="note">Per-can figures = lb/case × 453.592 ÷ cans per case. When "BOM split (mass)" matches the ratio column numerically, the BOM was written by mass while the blender runs by volume. Hover a code for its notes.</p>
     </section>
 
-    <!-- CONVERSIONS -->
+    <!-- ======================= CONVERSIONS ======================= -->
     <section id="page-convert" class="page hidden">
-      <header class="page-head"><h1>Conversions</h1></header>
+      <div class="page-head"><span class="eyebrow"><i></i>Tools</span><h1>Conversions</h1></div>
 
       <div class="split">
         <div class="split-card">
           <p class="eyebrow"><i></i>scf to weight</p>
           <h2>What does the meter's number weigh?</h2>
-          <p>The blender reports standard cubic feet. One scf of N₂O is 0.116 lb; one scf of N₂ is 0.0739 lb. Enter a quantity in any unit and the calculator gives the others — for a blend, it also splits the total between the two gases using the volume ratio the blender runs.</p>
+          <p>The blender reports standard cubic feet. One scf of N₂O is 0.116 lb; one scf of N₂ is 0.0739 lb. Enter a quantity in any unit and the calculator gives the others. For a blend, it also splits the total between the two gases using the volume ratio the blender runs.</p>
           <form id="conv-form" class="fields" onsubmit="return false">
-            <label>Gas <select name="gas"><option value="blend">Blend</option><option value="n2o">N₂O only</option><option value="n2">N₂ only</option></select></label>
-            <label>Amount <input type="number" name="amount" step="any" value="1000" inputmode="decimal"></label>
-            <label>Unit <select name="unit"><option value="scf">scf</option><option value="lb">lb</option><option value="g">g</option><option value="kg">kg</option></select></label>
-            <label id="conv-ratio-wrap">N₂O % by volume <input type="number" name="ratio" step="0.1" min="0" max="100" value="85" inputmode="decimal"></label>
-            <button type="submit" class="primary">Calculate</button>
+            <label class="field"><span>Gas</span><select class="input" name="gas"><option value="blend">Blend</option><option value="n2o">N₂O only</option><option value="n2">N₂ only</option></select></label>
+            <label class="field"><span>Amount</span><input class="input" type="number" name="amount" step="any" value="1000" inputmode="decimal"></label>
+            <label class="field"><span>Unit</span><select class="input" name="unit"><option value="scf">scf</option><option value="lb">lb</option><option value="g">g</option><option value="kg">kg</option></select></label>
+            <label class="field" id="conv-ratio-wrap"><span>N₂O % by volume</span><input class="input" type="number" name="ratio" step="0.1" min="0" max="100" value="85" inputmode="decimal"></label>
+            <button type="submit" class="btn">Calculate</button>
           </form>
         </div>
         <div class="split-result" id="conv-result">
@@ -336,13 +376,13 @@
         <div class="split-card">
           <p class="eyebrow"><i></i>Fill weight to BOM</p>
           <h2>What should the BOM say?</h2>
-          <p>Start from the gas that actually goes into a can (the gas weight check average), the case size, and the N₂O percentage set on the blender. The calculator works out the grams of each gas per can and the pounds per case to enter on the BOM lines. Choose whether the setpoint is meant by volume, which is how the blender meters it, or by mass.</p>
+          <p>Start from the gas that actually goes into a can (the gas weight check average), the case size, and the N₂O percentage set on the blender. The calculator works out the grams of each gas per can and the pounds per case for the BOM lines.</p>
           <form id="bom-form" class="fields" onsubmit="return false">
-            <label>Total gas per can (g) <input type="number" name="gcan" step="0.01" min="0" value="4.87" inputmode="decimal"></label>
-            <label>Cans per case <input type="number" name="cans" step="1" min="1" value="12" inputmode="numeric"></label>
-            <label>Machine setpoint, N₂O % <input type="number" name="pct" step="0.1" min="0" max="100" value="85" inputmode="decimal"></label>
-            <label>Setpoint is by <select name="basis"><option value="vol">volume (blender scf)</option><option value="mass">mass</option></select></label>
-            <button type="submit" class="primary">Calculate</button>
+            <label class="field"><span>Total gas per can (g)</span><input class="input" type="number" name="gcan" step="0.01" min="0" value="4.87" inputmode="decimal"></label>
+            <label class="field"><span>Cans per case</span><input class="input" type="number" name="cans" step="1" min="1" value="12" inputmode="numeric"></label>
+            <label class="field"><span>Machine setpoint, N₂O %</span><input class="input" type="number" name="pct" step="0.1" min="0" max="100" value="85" inputmode="decimal"></label>
+            <label class="field"><span>Setpoint is by</span><select class="input" name="basis"><option value="vol">volume (blender scf)</option><option value="mass">mass</option></select></label>
+            <button type="submit" class="btn">Calculate</button>
           </form>
         </div>
         <div class="split-result" id="bom-result">
@@ -352,23 +392,33 @@
       </div>
 
       <h2>Reference</h2>
-      <table class="data compact facts">
+      <div class="tbl-wrap"><table class="data compact facts">
         <thead><tr><th>Gas</th><th class="num">lb per scf</th><th class="num">g per scf</th><th class="num">scf per lb</th><th class="num">scf per kg</th></tr></thead>
         <tbody>
           <tr><td class="n2o">N₂O (nitrous oxide, 44.01 g/mol)</td><td class="num">0.1160</td><td class="num">52.6</td><td class="num">8.62</td><td class="num">19.0</td></tr>
           <tr><td class="n2">N₂ (nitrogen, 28.01 g/mol)</td><td class="num">0.0739</td><td class="num">33.5</td><td class="num">13.5</td><td class="num">29.8</td></tr>
         </tbody>
-      </table>
-      <p class="hint">Because N₂O is heavier, a blend that is 85% N₂O by volume is 89.9% by mass; 78% by volume is 84.8%; 70% by volume is 78.6%; 63.2% by volume is 72.9%.</p>
+      </table></div>
+      <p class="note">Because N₂O is heavier, a blend that is 85% N₂O by volume is 89.9% by mass; 78% by volume is 84.8%; 70% by volume is 78.6%; 63.2% by volume is 72.9%.</p>
     </section>
 
   </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-act">
+        <div class="fb"><svg class="foot-mark" aria-hidden="true"><use href="#mark"/></svg><b>Gas Blend Runs</b><span>Meter totalizers, filler OPC, paper checks and Enact KPI, joined by shift.</span></div>
+        <a class="btn secondary small to-top" href="#main" id="to-top">Back to top ↑</a>
+      </div>
+      <div class="foot-meta"><span>Alamance Foods · internal reference</span><span>Designed by Don Sang Chin</span></div>
+    </div>
+  </footer>
 </div>
 
-<div id="toast" class="toast hidden"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
 </body>

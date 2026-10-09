@@ -1,6 +1,8 @@
-/* C Line gas log — app logic. Talks directly to Supabase; no build step. */
+/* Gas Blend Runs: app logic. Talks directly to Supabase; charts are Apache ECharts; no build step. */
 
 const $ = (s) => document.querySelector(s);
+const PREVIEW = !!window.GBR_PREVIEW;                 // set only by the design-preview artifact
+document.documentElement.classList.add("js");
 let sb;
 try {
   if (typeof CONFIG === "undefined") throw new Error("config.js is missing or failed to load.");
@@ -21,13 +23,12 @@ const GUEST_HASH = "84983c60f7daadc1cb8698621f802c0d9f9a3c3c295c810748fb048115c1
 const PASSWORD_HASH = "b4b9c4c60e9dd10880a39f1825f1de018e23aea06e08b8d94aa336519d5fc088";
 const normCode = (c) => (c || "").trim().toUpperCase().replace(/^([A-Z]{2}\d+).*$/, "$1");   // AD28-T, AG45-WIP -> AD28, AG45
 let items = [];
-let chart = null;
 
 /* ---------- helpers ---------- */
 function toast(msg, isError = false) {
   const t = $("#toast");
-  t.textContent = msg; t.className = "toast" + (isError ? " error" : "");
-  clearTimeout(t._h); t._h = setTimeout(() => t.classList.add("hidden"), 3500);
+  t.textContent = msg; t.className = "toast show" + (isError ? " error" : "");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3500);
 }
 function fmt(n, d = 0) { return n == null || isNaN(n) ? "—" : Number(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }); }
 function formData(form) {
@@ -36,6 +37,7 @@ function formData(form) {
   return o;
 }
 function csv(rows, filename) {
+  if (PREVIEW) return toast("CSV export works on the live site; it's off in the preview");
   if (!rows.length) return toast("Nothing to export");
   const cols = Object.keys(rows[0]);
   const esc = (v) => v == null ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
@@ -53,6 +55,50 @@ async function fetchAll(table, order, asc = true) {
   return out;
 }
 function localDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+const shortDate = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function segVal(sel) { return $(`${sel} button.on`)?.dataset.v || "ALL"; }
+function segBind(sel, fn) { $(sel).addEventListener("click", (e) => { const b = e.target.closest("button[data-v]"); if (!b || b.classList.contains("on")) return; $$(`${sel} button`).forEach(x => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", String(x === b)); }); fn(b.dataset.v); }); }
+function segSet(sel, v) { $$(`${sel} button`).forEach(x => { x.classList.toggle("on", x.dataset.v === v); x.setAttribute("aria-pressed", String(x.dataset.v === v)); }); }
+
+/* ---------- charts: Apache ECharts, drawn when they scroll into view, morphing on every update ---------- */
+const COL = { C: "#2563b0", D: "#22a7c4", both: "#457a94", amber: "#c27a12", ink: "#031b27", ink2: "#6f7378", grid: "rgba(92,92,97,.13)", axis: "rgba(92,92,97,.38)" };
+const LINE_NAME = { C: "C Line", D: "D Line" };
+const FONT = '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif';
+const REDUCED = window.matchMedia ? matchMedia("(prefers-reduced-motion: reduce)").matches : false;
+const AX = { axisLine: { lineStyle: { color: COL.axis } }, axisTick: { show: false }, axisLabel: { color: COL.ink2, fontFamily: FONT, fontSize: 12, hideOverlap: true }, splitLine: { lineStyle: { color: COL.grid, type: [4, 4] } }, nameTextStyle: { color: COL.ink2, fontFamily: FONT, fontSize: 12 } };
+const TIP = { backgroundColor: "#ffffff", borderColor: "rgba(3,27,39,.08)", borderWidth: 1, padding: [10, 14], textStyle: { color: COL.ink, fontFamily: FONT, fontSize: 13 }, extraCssText: "border-radius:12px;box-shadow:0 12px 32px rgba(3,27,39,.16);max-width:340px;white-space:normal;" };
+const LEG = { top: 0, right: 0, icon: "roundRect", itemWidth: 12, itemHeight: 12, itemGap: 18, textStyle: { color: COL.ink, fontFamily: FONT, fontSize: 13 } };
+const ZOOM_SLIDER = { type: "slider", height: 20, bottom: 6, borderColor: "transparent", backgroundColor: "rgba(212,241,255,.45)", fillerColor: "rgba(37,99,176,.16)", dataBackground: { lineStyle: { color: COL.axis }, areaStyle: { color: "rgba(92,92,97,.08)" } }, handleSize: "120%", handleStyle: { color: "#fff", borderColor: COL.C }, moveHandleSize: 0, textStyle: { color: COL.ink2, fontFamily: FONT, fontSize: 11 }, brushSelect: false };
+const dot = (c) => `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:6px"></span>`;
+const pct = (v) => v == null || isNaN(v) ? "—" : `${v > 0 ? "+" : ""}${fmt(v)}%`;
+function chartBase(extra) {
+  return Object.assign({ textStyle: { fontFamily: FONT, color: COL.ink2 }, animation: !REDUCED, animationDuration: 1000, animationEasing: "cubicOut", animationDurationUpdate: 750, animationEasingUpdate: "cubicInOut", tooltip: { ...TIP }, legend: { ...LEG } }, extra);
+}
+const charts = {};
+const chartIO = window.IntersectionObserver ? new IntersectionObserver((entries) => entries.forEach(en => { if (en.isIntersecting) { const c = Object.values(charts).find(x => x.el === en.target); if (c && !c.inst) initChart(c); } }), { rootMargin: "0px 0px -8% 0px", threshold: .15 }) : null;
+function initChart(c) {
+  if (typeof echarts === "undefined") { c.el.closest(".chart-wrap")?.classList.add("empty"); return; }
+  c.inst = echarts.init(c.el, null, { renderer: "canvas" });
+  c.inst.on("click", (p) => c.handlers.click && c.handlers.click(p));
+  chartIO && chartIO.unobserve(c.el);
+  c.inst.setOption(c.option, true);
+}
+// draw (or update) a chart. Series keep their ids between updates, so switching C / D / Both morphs instead of redrawing.
+function drawChart(key, sel, option, handlers = {}) {
+  const el = $(sel); if (!el) return;
+  const wrap = el.closest(".chart-wrap"); wrap?.classList.remove("loading");
+  let c = charts[key];
+  if (c && c.el !== el) { c.inst && c.inst.dispose(); c = null; }
+  if (!c) c = charts[key] = { el, inst: null, option: null, handlers };
+  c.option = option; c.handlers = handlers;
+  if (c.inst) { c.inst.setOption(option, { replaceMerge: ["series", "xAxis", "yAxis", "grid", "dataZoom"] }); c.inst.resize(); return c; }
+  const r = el.getBoundingClientRect();
+  if (!chartIO || (r.width && r.top < innerHeight * .92 && r.bottom > 0)) initChart(c); else chartIO.observe(el);
+  return c;
+}
+function resizeCharts() { Object.values(charts).forEach(c => c.inst && c.el.offsetParent && c.inst.resize()); }
+let _rz; window.addEventListener("resize", () => { clearTimeout(_rz); _rz = setTimeout(resizeCharts, 120); });
 
 /* ---------- password gate ---------- */
 async function sha256(s) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join(""); }
@@ -62,14 +108,13 @@ async function showApp() {
   await loadItems();
   navigate(location.hash.replace("#", "") || "dashboard");
 }
-const LOGO = (typeof CONFIG !== "undefined" && CONFIG.LOGO_URL) || "https://www.alamancefoods.com/wp-content/uploads/2026/09/cropped-alamance-favicon-new-270x270.png";
-document.addEventListener("DOMContentLoaded", () => { $$("#logo-img, #logo-img-signin").forEach(i => i.src = LOGO); });
 window.addEventListener("scroll", () => document.body.classList.toggle("scrolled", window.scrollY > 10), { passive: true });
 const ADMIN_PAGES = ["runs", "readings", "checks"];
-function role() { return sessionStorage.getItem("gaslog-role"); }
+function role() { if (PREVIEW) return "admin"; try { return sessionStorage.getItem("gaslog-role"); } catch (e) { return window.__role || null; } }
+function setRole(r) { try { r ? sessionStorage.setItem("gaslog-role", r) : sessionStorage.removeItem("gaslog-role"); } catch (e) { window.__role = r; } }
 function applyRole() { const guest = role() === "guest"; document.body.classList.toggle("guest", guest); $("#signout").textContent = guest ? "Sign out (guest)" : "Sign out"; }
 // when embedded (e.g. a SharePoint Embed web part), offer a link to open the site in its own tab
-const EMBEDDED = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+const EMBEDDED = !PREVIEW && (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
 if (EMBEDDED) { const show = () => $("#open-full")?.classList.remove("hidden"); document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", show) : show(); }
 async function boot() {
   if (!sb) return;
@@ -78,25 +123,33 @@ async function boot() {
 $("#signin-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const hsh = await sha256($("#password").value);
-  if (hsh === PASSWORD_HASH) sessionStorage.setItem("gaslog-role", "admin"); else if (hsh === GUEST_HASH) sessionStorage.setItem("gaslog-role", "guest");
+  if (hsh === PASSWORD_HASH) setRole("admin"); else if (hsh === GUEST_HASH) setRole("guest");
   else { $("#signin-error").textContent = "Wrong password."; return; }
   $("#password").value = ""; applyRole(); showApp();
 });
-$("#signout").addEventListener("click", () => { sessionStorage.removeItem("gaslog-role"); document.body.classList.remove("guest"); showSignin(); });
+$("#signout").addEventListener("click", () => { if (PREVIEW) return toast("Sign-out is off in the preview"); setRole(null); document.body.classList.remove("guest"); showSignin(); });
 
 /* ---------- navigation ---------- */
 const loaders = { analysis: loadAnalysis, dashboard: loadDashboard, runs: loadRuns, readings: loadReadings, checks: loadChecks, items: renderItems, convert: renderConvert };
 function navigate(page) {
   if (!loaders[page]) page = "dashboard";
+  if (!$("#app") || $("#app").classList.contains("hidden")) return;
   if (role() === "guest" && ADMIN_PAGES.includes(page)) page = "dashboard";
   $$(".page").forEach(p => p.classList.add("hidden"));
   $(`#page-${page}`).classList.remove("hidden");
   $$(".site-nav a").forEach(a => a.classList.toggle("active", a.dataset.page === page));
-  const sec = $(`#page-${page}`); sec.classList.remove("enter"); void sec.offsetWidth; sec.classList.add("enter");
+  $("#siteNav").classList.remove("open"); $("#menuBtn").setAttribute("aria-expanded", "false");
+  const sec = $(`#page-${page}`); sec.style.animation = "none"; void sec.offsetWidth; sec.style.animation = "";
   $$(`#page-${page} .reveal`).forEach(el => el.classList.remove("in")); setTimeout(revealNow, 60);
+  currentPage = page; window.scrollTo({ top: 0 });
+  setTimeout(resizeCharts, 30);
   loaders[page]();
 }
-window.addEventListener("hashchange", () => { const hsh = location.hash.replace("#", ""); if (!hsh.startsWith("an-sec-")) navigate(hsh); });
+let currentPage = null;
+const PAGE_IDS = Object.keys(loaders);
+window.addEventListener("hashchange", () => { const hsh = location.hash.replace("#", ""); if (PAGE_IDS.includes(hsh) && hsh !== currentPage) navigate(hsh); });
+$("#menuBtn").addEventListener("click", () => { const open = $("#siteNav").classList.toggle("open"); $("#menuBtn").setAttribute("aria-expanded", String(open)); });
+$("#to-top").addEventListener("click", (e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); });
 
 /* ---------- items ---------- */
 async function loadItems() { items = await fetchAll("items", "code"); }
@@ -356,7 +409,7 @@ function shiftWindow(dateStr, shift) {
   const s = new Date(y, m - 1, d, SHIFT_START[shift]); const e = new Date(s.getTime() + 8 * 3600e3);
   return [s.getTime(), e.getTime()];
 }
-let dashRows = [], dashSort = { key: "date", dir: 1 };
+let dashRows = [], dashSort = { key: "date", dir: -1 }, lastEnact = null, lastReading = null;
 function renderDashTable() {
   const fItem = $("#f-item").value.trim().toLowerCase(), fShift = $("#f-shift").value, fWf = parseFloat($("#f-wf").value), fEff = parseFloat($("#f-eff").value);
   let rows = dashRows.filter(r =>
@@ -372,7 +425,7 @@ function renderDashTable() {
   const tb = $("#dash-table tbody"); tb.innerHTML = "";
   const cell = (label, val) => `<div><span>${label}</span><b>${val}</b></div>`;
   rows.forEach((r) => {
-    const tr = document.createElement("tr"); tr.className = "run";
+    const tr = document.createElement("tr"); tr.className = "run"; tr.dataset.key = `${r.line}|${r.date}|${r.shift}`;
     if (r.nonGasOnly) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">—</td><td class="num">—</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb)}</td><td colspan="6">non-gas-blend production only — ${r.totalLb == null ? "no meter data" : fmt(r.totalLb) + " lb of blend flowed with no gas item running"}</td>`; }
     else if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="7">no meter data for this shift</td>`; }
     else tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
@@ -406,7 +459,7 @@ function renderDashTable() {
     </div></td>`;
     tb.appendChild(det);
   });
-  tb.onclick = (e) => { const tr = e.target.closest("tr.run"); if (tr) tr.nextElementSibling.classList.toggle("hidden"); };
+  tb.onclick = (e) => { const tr = e.target.closest("tr.run"); if (tr) { const open = tr.nextElementSibling.classList.toggle("hidden"); tr.classList.toggle("open", !open); } };
 }
 ["#f-item", "#f-shift", "#f-wf", "#f-eff"].forEach(id => $(id).addEventListener("input", renderDashTable));
 $("#f-clear").addEventListener("click", () => { ["#f-item", "#f-wf", "#f-eff"].forEach(id => $(id).value = ""); $("#f-shift").value = ""; renderDashTable(); });
@@ -429,6 +482,8 @@ async function computeShiftRows(lines, from, to) {
     const key = `${k.line}|${k.date}|${k.shift}`; const n = Number(k.piece_count) || 0, m = Number(k.mean); if (!(n > 0) || isNaN(m)) return;
     const o = enact[key] = enact[key] || { sum: 0, n: 0, items: new Set() }; o.sum += m * n; o.n += n; o.items.add(k.item);
   });
+  const eg = enactGasRows(enactRaw); lastEnact = eg.sort((a, b) => String(b.summary_date).localeCompare(String(a.summary_date)))[0] || null;
+  lastReading = raw.length ? raw.reduce((m, r) => r.ts > m ? r.ts : m, raw[0].ts) : null;
   // paperwork: mean measured gas weight per line + date + shift (check_time decides the shift; 00:00-06:59 belongs to previous day's shift 3)
   const paper = {};
   checksRaw.forEach(c => {
@@ -498,42 +553,133 @@ async function computeShiftRows(lines, from, to) {
   return out;
 }
 
+// open one shift's row in the table (from a chart click), clearing filters that would hide it
+function openDashRow(r) {
+  const key = `${r.line}|${r.date}|${r.shift}`;
+  let tr = $(`#dash-table tr.run[data-key="${key}"]`);
+  if (!tr) { ["#f-item", "#f-wf", "#f-eff"].forEach(id => $(id).value = ""); $("#f-shift").value = ""; renderDashTable(); tr = $(`#dash-table tr.run[data-key="${key}"]`); }
+  if (!tr) return;
+  const det = tr.nextElementSibling; det.classList.remove("hidden"); tr.classList.add("open");
+  $("#dash-shifts").classList.add("in");
+  tr.classList.remove("flash"); void tr.offsetWidth; tr.classList.add("flash");
+  tr.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "center" });
+}
+
+// weekly waste % per line, for the tile sparklines
+function weeklyWaste(rows, L) {
+  const w = {}; rows.filter(r => r.line === L).forEach(r => { const k = weekStart(r.date); const o = w[k] = w[k] || { lb: 0, tgt: 0 }; o.lb += r.totalLb; o.tgt += r.targetLb; });
+  return Object.entries(w).sort(([a], [b]) => a.localeCompare(b)).map(([k, o]) => ({ week: k, v: (o.lb - o.tgt) / o.tgt * 100 }));
+}
+function sparkSVG(pts, color) {
+  if (pts.length < 2) return `<svg viewBox="0 0 300 96" aria-hidden="true"><text x="0" y="60" fill="currentColor">Not enough weeks yet for a trend.</text></svg>`;
+  const W = 300, H = 96, pad = 8, vs = pts.map(p => p.v), lo = Math.min(0, ...vs), hi = Math.max(...vs, 1);
+  const x = (i) => pad + i * (W - pad * 2) / (pts.length - 1), y = (v) => H - 14 - (v - lo) / (hi - lo || 1) * (H - 30);
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
+  const len = Math.round(pts.reduce((a, p, i) => i ? a + Math.hypot(x(i) - x(i - 1), y(p.v) - y(pts[i - 1].v)) : 0, 0)) + 10;
+  const last = pts[pts.length - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" aria-hidden="true" preserveAspectRatio="none"><path class="sp-area" d="${d} L${x(pts.length - 1).toFixed(1)} ${H - 14} L${x(0).toFixed(1)} ${H - 14} Z" fill="${color}"/>${lo < 0 ? `<line class="sp-zero" x1="${pad}" x2="${W - pad}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="${color}"/>` : ""}<path class="sp-line" d="${d}" stroke="${color}" style="--len:${len}"/><circle class="sp-end" cx="${x(pts.length - 1).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="5" fill="${color}"/><text x="${pad}" y="${H}" fill="currentColor">${shortDate(pts[0].week)}</text><text x="${W - pad}" y="${H}" text-anchor="end" fill="currentColor">wk of ${shortDate(last.week)}</text></svg>`;
+}
+function renderLineCards(all, from, to) {
+  const sum = (arr) => arr.reduce((a, r) => ({ lb: a.lb + r.totalLb, tgt: a.tgt + r.targetLb, cans: a.cans + r.cans, n: a.n + 1 }), { lb: 0, tgt: 0, cans: 0, n: 0 });
+  const sel = segVal("#dash-line");
+  const card = (L, cls, ink) => { const g = all.filter(r => r.line === L); const T = sum(g); if (!T.n) return `<button type="button" class="tool ${cls}" data-line="${L}"><span class="tool-k">${LINE_NAME[L]}</span><span class="tool-n">—</span><span class="tool-d">No shifts with meter data and production in this range.</span></button>`;
+    const w = (T.lb - T.tgt) / T.tgt * 100;
+    return `<button type="button" class="tool ${cls}${sel === L ? " sel" : ""}" data-line="${L}" aria-pressed="${sel === L}"><span class="tool-k">${LINE_NAME[L]}</span><span class="tool-n">${pct(w)}<small>gas over target</small></span><span class="tool-spark">${sparkSVG(weeklyWaste(all, L), ink)}</span><span class="tool-d">${fmt(T.lb)} lb metered over ${T.n} shifts · ${fmt(T.lb * G_PER_LB / T.cans, 1)} g per can against ${fmt(T.tgt * G_PER_LB / T.cans, 2)} g target</span><span class="tool-go">${sel === L ? "Show both lines" : `Show ${LINE_NAME[L]} only`}</span></button>`; };
+  const T = sum(all), over = T.lb - T.tgt, days = Math.max(1, Math.round((new Date(to) - new Date(from)) / 864e5) + 1);
+  $("#line-cards").innerHTML = card("C", "t-navy", "#8ae5ff") + card("D", "t-sky", "#031b27") +
+    `<a class="tool t-lime" href="#analysis"><span class="tool-k">Both lines · ${shortDate(from)} to ${shortDate(to)}</span><span class="tool-n">${fmt(over)}<small>lb of gas over target</small></span><span class="tool-spark"><svg viewBox="0 0 300 96" aria-hidden="true"><text x="0" y="44" fill="currentColor" style="font-size:17px;font-weight:700;opacity:.9">≈ ${fmt(over / days)} lb a day</text><text x="0" y="72" fill="currentColor" style="font-size:14px;opacity:.75">${fmt(over * G_PER_LB / 1000)} kg over ${days} days</text></svg></span><span class="tool-d">${fmt(T.lb)} lb metered against ${fmt(T.tgt)} lb that went into ${fmt(T.cans)} cans.</span><span class="tool-go">Where it goes</span></a>`;
+  $$("#line-cards button.tool[data-line]").forEach(b => b.onclick = () => { const L = b.dataset.line; const v = segVal("#dash-line") === L ? "ALL" : L; segSet("#dash-line", v); loadDashboard(); });
+  setupCarousel();
+}
+// phone: centre tile tracking and dots for the swipe row
+function setupCarousel() {
+  const row = $("#line-cards"), dots = $("#line-dots"), tiles = [...row.children];
+  dots.innerHTML = tiles.map(() => "<i></i>").join("");
+  const mark = () => { const mid = row.scrollLeft + row.clientWidth / 2; let best = 0, bd = 1e9; tiles.forEach((t, i) => { const d = Math.abs(t.offsetLeft + t.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = i; } }); tiles.forEach((t, i) => t.classList.toggle("center", i === best)); [...dots.children].forEach((d, i) => d.classList.toggle("on", i === best)); };
+  row.onscroll = () => { cancelAnimationFrame(row._raf); row._raf = requestAnimationFrame(mark); }; mark();
+}
+
+// navy ticker: the figures a supervisor checks first, looping
+function renderTicker(all, lines) {
+  const items = [];
+  lines.forEach(L => { const g = all.filter(r => r.line === L); if (!g.length) return; const lb = g.reduce((a, r) => a + r.totalLb, 0), t = g.reduce((a, r) => a + r.targetLb, 0), cans = g.reduce((a, r) => a + r.cans, 0);
+    items.push(`<a class="tk-item" href="#dash-shifts">${LINE_NAME[L]} <b class="${(lb - t) / t > .25 ? "warn" : ""}">${pct((lb - t) / t * 100)}</b><small>over target</small></a>`);
+    items.push(`<span class="tk-item">${LINE_NAME[L]} <b>${fmt(lb * G_PER_LB / cans, 1)} g</b><small>per can metered</small></span>`); });
+  const ranked = all.filter(r => r.wastePct != null && r.hours >= 7).sort((a, b) => a.wastePct - b.wastePct);
+  if (ranked.length) { const b = ranked[0], w = ranked[ranked.length - 1];
+    items.push(`<span class="tk-item">Best shift <b>${b.line} ${shortDate(b.date)} S${b.shift}</b><small>${pct(b.wastePct)} · ${esc(b.items)}</small></span>`);
+    items.push(`<span class="tk-item">Worst shift <b class="warn">${w.line} ${shortDate(w.date)} S${w.shift}</b><small>${pct(w.wastePct)} · ${esc(w.items)}</small></span>`); }
+  if (lastEnact) items.push(`<span class="tk-item">Latest Enact <b>${fmt(lastEnact.mean, 2)} g</b><small>${esc(lastEnact.item)} · ${esc(lastEnact.gasser)} · ${shortDate(lastEnact.date)} ${lastEnact.shift ? "S" + lastEnact.shift : "day"}</small></span>`);
+  if (lastReading) items.push(`<span class="tk-item">Meter read <b>${new Date(lastReading).toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</b><small>latest totalizer</small></span>`);
+  const mark = `<svg class="tk-mark" aria-hidden="true"><use href="#mark"/></svg>`;
+  const set = items.map(i => `<li>${i}</li><li>${mark}</li>`).join("");
+  const tk = $("#ticker"); tk.classList.toggle("static", items.length < 2);
+  tk.querySelector(".tk-track").innerHTML = items.length ? `<ul class="tk-set">${set}</ul><ul class="tk-set" aria-hidden="true">${set.replace(/<a /g, '<a tabindex="-1" ')}</ul>` : `<ul class="tk-set"><li><span class="tk-item">No shifts with meter data in this range.</span></li></ul>`;
+}
+
 async function loadDashboard() {
   const from = $("#dash-from"), to = $("#dash-to");
+  $("#chart-waste").closest(".chart-wrap").classList.add("loading");
   if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || localDate(new Date(Date.now() - 30 * 864e5)); to.value = localDate(new Date()); }
-  const lineSel = $("#dash-line").value; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
-  const out = await computeShiftRows(lines, from.value, to.value);
+  const lineSel = segVal("#dash-line"); const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
+  // tiles and ticker always show both lines; the chart and table follow the C / D / Both switch
+  const both = await computeShiftRows(["C", "D"], from.value, to.value);
+  const out = both.filter(r => lines.includes(r.line));
   dashRows = out; renderDashTable();
-
-
   const have = out.filter(r => r.totalLb != null && r.targetLb);
+  const haveBoth = both.filter(r => r.totalLb != null && r.targetLb && !r.nonGasOnly);
+  renderLineCards(haveBoth, from.value, to.value);
+  renderTicker(haveBoth, ["C", "D"]);
+
   const summ = lines.map(L => { const h = have.filter(r => r.line === L); if (!h.length) return null;
     const T = h.reduce((a, r) => ({ lb: a.lb + r.totalLb, tgt: a.tgt + r.targetLb, cans: a.cans + r.cans, cases: a.cases + r.cases }), { lb: 0, tgt: 0, cans: 0, cases: 0 });
-    return `<b>${L} Line</b>: ${h.length} shifts, ${fmt(T.cases)} cases, ${fmt(T.lb)} lb metered vs ${fmt(T.tgt)} lb target — <b>${fmt((T.lb - T.tgt) / T.tgt * 100)}% over target</b>, ${fmt(T.lb * G_PER_LB / T.cans, 1)} g/can`; }).filter(Boolean);
+    return `<b>${LINE_NAME[L]}</b>: ${h.length} shifts, ${fmt(T.cases)} cases, ${fmt(T.lb)} lb metered against ${fmt(T.tgt)} lb target, <b>${pct((T.lb - T.tgt) / T.tgt * 100)}</b>.`; }).filter(Boolean);
   $("#dash-summary").innerHTML = summ.length ? summ.join("<br>") : "No shifts with both production and meter data in this range.";
 
-  if (chart) chart.destroy();
-  const colors = { C: "#014583", D: "#8ae5ff" }, cpmColors = { C: "#c27a12", D: "#031b27" };   // brand palette: C primary blue, D sky blue; CPM lines orange / navy
-  const bars = lines.map(L => ({ type: "bar", label: `${L} Line waste %`, data: have.map(r => r.line === L ? r.wastePct : null), backgroundColor: colors[L], yAxisID: "y", order: 2, skipNull: true }));
-  const showCpm = $("#dash-cpm").checked;
-  const cpmLines = showCpm ? lines.map(L => ({ type: "line", label: `${L} Line avg CPM`, data: have.map(r => r.line === L ? r.avgCpm : null), borderColor: cpmColors[L], backgroundColor: cpmColors[L], pointBackgroundColor: "#fff", pointBorderColor: cpmColors[L], pointBorderWidth: 2, pointRadius: 4, borderWidth: 2, borderDash: [6, 4], spanGaps: true, yAxisID: "y2", order: 1 })) : [];
-  chart = new Chart($("#chart-waste"), {
-    data: { labels: have.map(r => `${r.date.slice(5)} S${r.shift}`), datasets: [...bars, ...cpmLines] },
-    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
-      plugins: { legend: { display: true }, tooltip: { callbacks: { afterBody: (c) => { const r = have[c[0].dataIndex]; return `${r.items} · ${fmt(r.cases)} cases`; } } } },
-      scales: { x: { stacked: true },
-        y: { beginAtZero: true, position: "left", title: { display: true, text: "waste % over target" }, ticks: { callback: v => v + "%" } },
-        y2: { display: showCpm, beginAtZero: true, position: "right", grid: { drawOnChartArea: false }, title: { display: true, text: "filler cans / min" } } } }
-  });
+  // ---- waste by shift: one slot per date + shift, C and D side by side; filler speed in its own panel below (no second y-axis)
+  const showCpm = $("#dash-cpm").getAttribute("aria-pressed") === "true";
+  const wrap = $("#chart-waste").closest(".chart-wrap"); wrap.classList.toggle("with-cpm", showCpm); wrap.classList.toggle("empty", !have.length);
+  const cats = [...new Set(have.map(r => `${r.date}|${r.shift}`))].sort();
+  const byKey = {}; have.forEach(r => byKey[`${r.line}|${r.date}|${r.shift}`] = r);
+  const xLab = (k) => { const [d, sh] = k.split("|"); return `${shortDate(d)} S${sh}`; };
+  const fitN = innerWidth < 700 ? 16 : 42, zoomStart = cats.length > fitN ? Math.round((1 - fitN / cats.length) * 100) : 0;
+  const bars = lines.map((L, li) => ({ id: "w" + L, name: LINE_NAME[L], type: "bar", xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 18, barGap: "12%", barCategoryGap: "28%",
+    data: cats.map(k => { const r = byKey[`${L}|${k}`]; return r ? { value: Math.round(r.wastePct * 10) / 10, r } : null; }),
+    itemStyle: { color: COL[L], borderRadius: 4 }, emphasis: { focus: "series", itemStyle: { color: COL[L] } }, blur: { itemStyle: { opacity: .25 } },
+    universalTransition: { enabled: true }, animationDelay: (i) => i * 10 + li * 60,
+    markLine: li === 0 ? { silent: true, symbol: "none", lineStyle: { color: COL.ink, width: 1, type: "solid", opacity: .55 }, label: { show: true, position: "insideEndTop", formatter: "on target", color: COL.ink2, fontFamily: FONT, fontSize: 11 }, data: [{ yAxis: 0 }] } : undefined }));
+  const cpm = !showCpm ? [] : lines.map(L => ({ id: "c" + L, name: `${LINE_NAME[L]} filler`, type: "line", xAxisIndex: 1, yAxisIndex: 1, connectNulls: true, symbol: "circle", symbolSize: 6, showSymbol: true,
+    data: cats.map(k => { const r = byKey[`${L}|${k}`]; return r && r.avgCpm != null ? { value: Math.round(r.avgCpm), r } : null; }),
+    lineStyle: { color: COL[L], width: 2, type: [6, 4] }, itemStyle: { color: "#fff", borderColor: COL[L], borderWidth: 2 },
+    markLine: { silent: true, symbol: "none", lineStyle: { color: COL[L], width: 1, type: "dotted", opacity: .8 }, label: { formatter: `${L} max ${FILLER_SETPOINT[L]}`, color: COL.ink2, fontFamily: FONT, fontSize: 11, position: "insideEndTop" }, data: [{ yAxis: FILLER_SETPOINT[L] }] } }));
+  const grids = showCpm ? [{ left: 56, right: 20, top: 42, bottom: "36%" }, { left: 56, right: 20, top: "70%", bottom: 64 }] : [{ left: 56, right: 20, top: 42, bottom: 64 }];
+  const xAxes = [{ ...AX, type: "category", gridIndex: 0, data: cats.map(xLab), axisLabel: { ...AX.axisLabel, show: !showCpm }, axisLine: { ...AX.axisLine, onZero: false } }];
+  const yAxes = [{ ...AX, type: "value", gridIndex: 0, name: "gas over target", nameLocation: "end", nameGap: 14, nameTextStyle: { ...AX.nameTextStyle, align: "left" }, axisLabel: { ...AX.axisLabel, formatter: (v) => v + "%" } }];
+  if (showCpm) { xAxes.push({ ...AX, type: "category", gridIndex: 1, data: cats.map(xLab) }); yAxes.push({ ...AX, type: "value", gridIndex: 1, name: "filler cans / min", nameLocation: "end", nameGap: 10, nameTextStyle: { ...AX.nameTextStyle, align: "left" }, min: 0, max: (v) => Math.max(v.max, 300) * 1.08, splitNumber: 3, axisLabel: { ...AX.axisLabel, formatter: (v) => Math.round(v) } }); }
+  const xIdx = showCpm ? [0, 1] : [0];
+  drawChart("waste", "#chart-waste", chartBase({
+    legend: { ...LEG, data: [...bars, ...cpm].map(s => s.name) },
+    grid: grids, xAxis: xAxes, yAxis: yAxes,
+    dataZoom: [{ type: "inside", xAxisIndex: xIdx, start: zoomStart, end: 100, zoomOnMouseWheel: "shift", moveOnMouseWheel: false }, { ...ZOOM_SLIDER, xAxisIndex: xIdx, start: zoomStart, end: 100 }],
+    axisPointer: { link: [{ xAxisIndex: "all" }] },
+    tooltip: { ...TIP, trigger: "axis", axisPointer: { type: "shadow", shadowStyle: { color: "rgba(212,241,255,.45)" } },
+      formatter: (ps) => { const k = cats[ps[0].dataIndex]; const [d, sh] = k.split("|");
+        return `<b>${new Date(d + "T12:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · shift ${sh}</b>` + lines.map(L => { const r = byKey[`${L}|${k}`]; if (!r) return "";
+          return `<div style="margin-top:6px">${dot(COL[L])}<b>${LINE_NAME[L]} ${pct(r.wastePct)}</b> <span style="color:${COL.ink2}">${r.basis === "paperwork" ? "vs paperwork" : r.basis === "Enact" ? "vs Enact" : "vs BOM"}</span><br><span style="color:${COL.ink2}">${esc(r.items)} · ${fmt(r.cases)} cases · ${fmt(r.gPerCan, 1)} g/can${r.avgCpm != null ? ` · ${fmt(r.avgCpm)} cpm` : ""}</span></div>`; }).join("") + `<div style="margin-top:6px;color:${COL.ink2};font-size:12px">Click to open in the table</div>`; } },
+    series: [...bars, ...cpm],
+  }), { click: (p) => { const r = p.data?.r; if (r) openDashRow(r); } });
+
   $("#dash-export").onclick = () => csv(out.map(r => ({ line: r.line, date: r.date, shift: r.shift, items: r.items, cases: r.cases, cans: r.cans, hours: r.hours, n2o_scf: r.n2oScf, n2_scf: r.n2Scf, n2o_lb: r.n2oLb, n2_lb: r.n2Lb, total_lb: r.totalLb, n2o_pct_vol: r.volPct, avg_cpm: r.avgCpm, efficiency_pct_cans_vs_capacity: r.eff, capacity_cans: r.capacityCans, pct_shift_filler_down: r.pctDown, longest_stop_min: r.longestStop, target_basis: r.basis, target_lb: r.targetLb, paperwork_g_per_can: r.paperG, paperwork_readings: r.paperN, bom_target_lb: r.bomLb, g_per_can: r.gPerCan, waste_pct: r.wastePct, notes: r.notes })), "consumption_by_shift.csv");
+  revealNow();
 }
-$("#dash-refresh").addEventListener("click", loadDashboard);
-$("#dash-line").addEventListener("change", loadDashboard);
-$("#dash-cpm").addEventListener("change", loadDashboard);
+segBind("#dash-line", () => loadDashboard());
+["#dash-from", "#dash-to"].forEach(id => $(id).addEventListener("change", loadDashboard));
+$("#dash-cpm").addEventListener("click", (e) => { const b = e.currentTarget; b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true")); loadDashboard(); });
+$("#dash-more").addEventListener("click", (e) => { const open = $("#dash-ctl").classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", String(open)); });
+$("#an-more").addEventListener("click", (e) => { const open = $("#an-ctl").classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", String(open)); });
 
 
 /* ---------- analysis ---------- */
-let anCharts = {};
 function fitLine(xs, ys) {
   const n = xs.length; if (n < 2) return null;
   const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
@@ -547,12 +693,12 @@ const CATS = { startup: "Startup", end_of_schedule: "End of schedule", changeove
 const CAT_COLORS = { startup: "#8ae5ff", end_of_schedule: "#014583", changeover: "#c27a12", downtime: "#b3261e" };
 const CAT_NOTE = { startup: "expected — gas to bring the system up before the first can", end_of_schedule: "blend left open after the last can, or through a CIP", changeover: "blend open while a non-gas item ran, or during a long changeover", downtime: "blend open through a stop of 30 min or more with the filler idle" };
 const med = (arr) => { const v = arr.filter(x => x != null && !isNaN(x)).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
-const mkChart = (key, el, cfg) => { if (anCharts[key]) anCharts[key].destroy(); anCharts[key] = new Chart($(el), cfg); return anCharts[key]; };
 
 async function loadAnalysis() {
   const from = $("#an-from"), to = $("#an-to");
   if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || "2026-08-01"; to.value = localDate(new Date()); }
-  const lineSel = $("#an-line .on")?.dataset.v || "ALL"; const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
+  $$("#page-analysis .chart-wrap").forEach(w => { if (!charts[w.querySelector(".chart")?.id]) w.classList.add("loading"); });
+  const lineSel = segVal("#an-line"); const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
   const [allShifts, allRuns, rawR, rawF, rawEvents] = await Promise.all([computeShiftRows(lines, from.value, to.value), fetchAll("production_runs", "run_date"), fetchAll("gas_readings", "ts"), fetchAll("filler_readings", "ts").catch(() => []), fetchAll("gas_events", "start_ts").catch(() => [])]);
   const all = allShifts.filter(r => r.totalLb != null && r.targetLb && !r.nonGasOnly);
   const readingsBy = {}, fillerBy = {};
@@ -567,7 +713,7 @@ async function loadAnalysis() {
   const full = rows.filter(r => r.hours >= 7.5);
   const gasTot = rows.reduce((x, r) => x + r.totalLb, 0);
   $("#an-count").textContent = `${rows.length} shifts, ${from.value} to ${to.value}`;
-  const colors = { C: "#014583", D: "#8ae5ff" }, dark = { C: "#031b27", D: "#457a94" };
+  const colors = { C: COL.C, D: COL.D };
   const wasteOf = (arr) => { const lb = arr.reduce((a, r) => a + r.totalLb, 0), t = arr.reduce((a, r) => a + r.targetLb, 0); return t ? (lb - t) / t * 100 : null; };
 
   // ===== by item =====
@@ -592,12 +738,22 @@ async function loadAnalysis() {
     $$("#an-items tr.detail").forEach(d => d.classList.add("hidden")); $$("#an-items tr.run").forEach(t => t.classList.remove("selected"));
     openCode = wasOpen ? null : code;
     if (!wasOpen) { det.classList.remove("hidden"); det.previousElementSibling.classList.add("selected"); if (scroll) det.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
-    const ch = anCharts.items; if (ch) { ch.data.datasets[0].backgroundColor = topItems.map(o => o.code === openCode ? "#c27a12" : baseColor(o)); ch.data.datasets[0].borderColor = topItems.map(o => o.code === openCode ? "#031b27" : "transparent"); ch.data.datasets[0].borderWidth = topItems.map(o => o.code === openCode ? 2 : 0); ch.update(); }
+    const ch = charts["an-chart-items"]?.inst; if (ch) ch.setOption({ series: [{ id: "g", data: itemBars() }] });
   };
   $("#an-items tbody").onclick = (e) => { const tr = e.target.closest("tr.run"); if (tr) openItem(tr.dataset.code); };
-  mkChart("items", "#an-chart-items", { type: "bar",
-    data: { labels: topItems.map(o => o.code), datasets: [{ label: "gas per can (g, allocated) — click a bar to expand", data: topItems.map(o => o.lb * G_PER_LB / o.cans), backgroundColor: topItems.map(baseColor), borderColor: topItems.map(() => "transparent"), borderWidth: 0, borderRadius: 6 }, { label: "target g (paperwork or BOM)", type: "line", data: topItems.map(o => o.tgt * G_PER_LB / o.cans), borderColor: "#c27a12", borderDash: [6, 4], borderWidth: 2, pointRadius: 0, stepped: true }] },
-    options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: "easeOutQuart" }, onClick: (evt, els) => { if (els.length) openItem(topItems[els[0].index].code, true); }, scales: { y: { beginAtZero: true, title: { display: true, text: "g per can" } } } } });
+  function itemBars() { return topItems.map(o => ({ value: Math.round(o.lb * G_PER_LB / o.cans * 100) / 100, o, itemStyle: { color: baseColor(o), opacity: openCode && o.code !== openCode ? .3 : 1, borderColor: o.code === openCode ? COL.ink : "transparent", borderWidth: o.code === openCode ? 2 : 0, borderRadius: 4 } })); }
+  drawChart("an-chart-items", "#an-chart-items", chartBase({
+    legend: { ...LEG, data: ["Gas per can, metered", "Target"] },
+    grid: { left: 52, right: 16, top: 42, bottom: 40 },
+    xAxis: { ...AX, type: "category", data: topItems.map(o => o.code), axisLabel: { ...AX.axisLabel, interval: 0, rotate: topItems.length > 9 ? 30 : 0 } },
+    yAxis: { ...AX, type: "value", name: "g per can", nameTextStyle: { ...AX.nameTextStyle, align: "left" } },
+    tooltip: { ...TIP, trigger: "axis", axisPointer: { type: "shadow", shadowStyle: { color: "rgba(212,241,255,.45)" } }, formatter: (ps) => { const o = topItems[ps[0].dataIndex]; const g = o.lb * G_PER_LB / o.cans, t = o.tgt * G_PER_LB / o.cans;
+      return `<b>${esc(o.code)}</b> <span style="color:${COL.ink2}">${esc(o.brand || "")}</span><div style="margin-top:6px">${dot(baseColor(o))}${fmt(g, 2)} g per can metered</div><div>${dot(COL.amber)}${fmt(t, 2)} g target · <b>${pct((g - t) / t * 100)}</b></div><div style="color:${COL.ink2};margin-top:4px">${o.shifts} shifts${o.mixed ? ` (${o.mixed} shared)` : ""} · ${[...o.lines].map(l => LINE_NAME[l]).join(", ")} · click to list them</div>`; } },
+    series: [
+      { id: "g", name: "Gas per can, metered", type: "bar", barMaxWidth: 34, data: itemBars(), itemStyle: { color: COL.both }, universalTransition: { enabled: true }, animationDelay: (i) => i * 40 },
+      { id: "t", name: "Target", type: "line", step: "middle", symbol: "none", lineStyle: { color: COL.amber, width: 2, type: [6, 4] }, itemStyle: { color: COL.amber }, data: topItems.map(o => Math.round(o.tgt * G_PER_LB / o.cans * 100) / 100), z: 3 },
+    ],
+  }), { click: (p) => { const o = topItems[p.dataIndex]; if (o) openItem(o.code, true); } });
   $("#an-export").onclick = () => csv(itemList.map(o => ({ item: o.code, brand: o.brand, lines: [...o.lines].join(" "), shifts: o.shifts, shared_shifts: o.mixed, cases: o.cases, cans: o.cans, gas_lb_allocated: o.lb, g_per_can: o.lb * G_PER_LB / o.cans, target_g_per_can: o.tgt * G_PER_LB / o.cans, waste_pct: (o.lb - o.tgt) / o.tgt * 100, waste_pct_vs_bom: o.bom ? (o.lb - o.bom) / o.bom * 100 : null })), "analysis_by_item.csv");
 
   // ===== by line =====
@@ -621,15 +777,20 @@ async function loadAnalysis() {
   // ===== efficiency vs waste =====
   const effOf = (r) => r.avgCpm != null ? r.avgCpm / FILLER_SETPOINT[r.line] * 100 : null;
   const effRows = full.filter(r => effOf(r) != null);
-  mkChart("eff", "#an-chart-eff", { type: "scatter",
-    data: { datasets: lines.flatMap(L => { const g = effRows.filter(r => r.line === L); const f = fitLine(g.map(effOf), g.map(r => r.wastePct)); const xs = g.map(effOf); const xmin = Math.min(...xs), xmax = Math.max(...xs);
-      return [{ label: `${L} Line shifts`, data: g.map(r => ({ x: effOf(r), y: r.wastePct, r })), backgroundColor: colors[L], pointBorderColor: dark[L], pointRadius: 6, pointHoverRadius: 9 },
-        ...(f && g.length > 3 ? [{ label: `${L} trend`, type: "line", data: [{ x: xmin, y: f.c + f.m * xmin }, { x: xmax, y: f.c + f.m * xmax }], borderColor: dark[L], borderDash: [6, 4], borderWidth: 2, pointRadius: 0, pointHitRadius: 0 }] : [])]; }) },
-    options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: "easeOutQuart" }, interaction: { mode: "nearest", intersect: true },
-      onClick: (evt, els) => { if (!els.length) return; const d = anCharts.eff.data.datasets[els[0].datasetIndex].data[els[0].index]; if (!d.r) return; const r = d.r; const box = $("#an-eff-detail"); box.classList.remove("hidden");
-        box.innerHTML = `<b>${r.line} Line · ${r.date} · shift ${r.shift}</b> — ${r.items}<div class="pick-grid"><div><span>Filler</span>${fmt(r.avgCpm)} cpm average = ${fmt(effOf(r))}% of ${FILLER_SETPOINT[r.line]}${r.pctDown != null ? " · down " + fmt(r.pctDown) + "% of shift" : ""}</div><div><span>Production</span>${fmt(r.cases)} cases · ${fmt(r.cans)} cans</div><div><span>Gas</span>${fmt(r.totalLb)} lb · ${fmt(r.lbHr)} lb/hr · ${fmt(r.gPerCan, 1)} g/can</div><div><span>Waste</span>${fmt(r.wastePct)}% over ${r.basis} target</div></div>`; },
-      plugins: { tooltip: { callbacks: { label: (c) => c.raw.r ? `${c.raw.r.date} S${c.raw.r.shift} ${c.raw.r.items}: ${fmt(c.raw.y)}% waste at ${fmt(c.raw.x)}% filler speed` : c.dataset.label } } },
-      scales: { x: { beginAtZero: true, title: { display: true, text: "filler speed, % of maximum (avg cpm ÷ setpoint)" }, ticks: { callback: v => v + "%" } }, y: { beginAtZero: true, title: { display: true, text: "gas % over target" }, ticks: { callback: v => v + "%" } } } } });
+  const showEff = (r) => { const box = $("#an-eff-detail"); box.classList.remove("hidden");
+    box.innerHTML = `<b>${LINE_NAME[r.line]} · ${r.date} · shift ${r.shift}</b> · ${esc(r.items)}<div class="pick-grid"><div><span>Filler</span>${fmt(r.avgCpm)} cpm average = ${fmt(effOf(r))}% of ${FILLER_SETPOINT[r.line]}${r.pctDown != null ? " · down " + fmt(r.pctDown) + "% of shift" : ""}</div><div><span>Production</span>${fmt(r.cases)} cases · ${fmt(r.cans)} cans</div><div><span>Gas</span>${fmt(r.totalLb)} lb · ${fmt(r.lbHr)} lb/hr · ${fmt(r.gPerCan, 1)} g/can</div><div><span>Waste</span>${pct(r.wastePct)} against the ${r.basis} target</div></div>`; };
+  const effSeries = lines.flatMap(L => { const g = effRows.filter(r => r.line === L); const f = fitLine(g.map(effOf), g.map(r => r.wastePct)); const xs = g.map(effOf); const xmin = Math.min(...xs), xmax = Math.max(...xs);
+    return [{ id: "s" + L, name: LINE_NAME[L], type: "scatter", symbolSize: 11, data: g.map(r => ({ value: [Math.round(effOf(r) * 10) / 10, Math.round(r.wastePct * 10) / 10], r })), itemStyle: { color: colors[L], borderColor: "#fff", borderWidth: 1.5, opacity: .9 }, emphasis: { scale: 1.6, focus: "series" }, blur: { itemStyle: { opacity: .2 } }, universalTransition: { enabled: true }, animationDelay: (i) => i * 12 },
+      ...(f && g.length > 3 ? [{ id: "f" + L, name: `${LINE_NAME[L]} trend`, type: "line", silent: true, symbol: "none", lineStyle: { color: colors[L], width: 2, type: [6, 4] }, data: [[xmin, f.c + f.m * xmin], [xmax, f.c + f.m * xmax]], tooltip: { show: false } }] : [])]; });
+  drawChart("an-chart-eff", "#an-chart-eff", chartBase({
+    legend: { ...LEG, data: lines.map(L => LINE_NAME[L]) },
+    grid: { left: 56, right: 24, top: 42, bottom: 48 },
+    xAxis: { ...AX, type: "value", min: 0, name: "filler speed, % of maximum", nameLocation: "middle", nameGap: 30, axisLabel: { ...AX.axisLabel, formatter: (v) => v + "%" } },
+    yAxis: { ...AX, type: "value", name: "gas over target", nameTextStyle: { ...AX.nameTextStyle, align: "left" }, axisLabel: { ...AX.axisLabel, formatter: (v) => v + "%" } },
+    dataZoom: [{ type: "inside", xAxisIndex: 0, filterMode: "none", zoomOnMouseWheel: "shift" }, { type: "inside", yAxisIndex: 0, filterMode: "none", zoomOnMouseWheel: "shift" }],
+    tooltip: { ...TIP, trigger: "item", formatter: (p) => { const r = p.data?.r; if (!r) return ""; return `${dot(colors[r.line])}<b>${LINE_NAME[r.line]} ${shortDate(r.date)} S${r.shift}</b><br>${pct(r.wastePct)} waste at ${fmt(effOf(r))}% filler speed<br><span style="color:${COL.ink2}">${esc(r.items)} · click for details</span>`; } },
+    series: effSeries,
+  }), { click: (p) => p.data?.r && showEff(p.data.r) });
   const bands = [[0, 40, "under 40%"], [40, 70, "40–70%"], [70, 1e9, "over 70%"]];
   $("#an-eff-kpis").innerHTML = bands.map(([lo, hi, lab]) => { const g = effRows.filter(r => effOf(r) >= lo && effOf(r) < hi); if (!g.length) return ""; return `<div class="kpi mini-kpi"><h3>Filler at ${lab} of max</h3><div class="big">${fmt(wasteOf(g))}%<small>gas over target · ${g.length} shifts · median ${fmt(med(g.map(r => r.gPerCan)), 1)} g/can</small></div></div>`; }).join("");
 
@@ -640,9 +801,21 @@ async function loadAnalysis() {
   $("#an-trend-text").innerHTML = lines.map(L => { const g = rows.filter(r => r.line === L).sort((a, b) => a.date.localeCompare(b.date) || a.shift - b.shift); if (g.length < 4) return null;
     const t0 = new Date(g[0].date).getTime(); const f = fitLine(g.map(r => (new Date(r.date).getTime() - t0) / 864e5), g.map(r => r.gPerCan)); const half = Math.floor(g.length / 2); const a1 = wasteOf(g.slice(0, half)), a2 = wasteOf(g.slice(half));
     return `<b>${L} Line</b>: first half of the period ${fmt(a1)}% over target → second half ${fmt(a2)}% (${a2 - a1 >= 0 ? "+" : ""}${fmt(a2 - a1)} points). Gas per can trending ${f.m >= 0 ? "up" : "down"} ${Math.abs(f.m * 7).toFixed(2)} g per week${f.r2 < 0.1 ? " — not a meaningful trend yet; shift-to-shift variation dominates" : ""}.`; }).filter(Boolean).join("<br>") || "Need at least 4 shifts per line to test for a trend.";
-  mkChart("trend", "#an-chart-trend", { type: "line",
-    data: { labels: weekLabels, datasets: lines.map(L => ({ label: `${L} Line weekly waste %`, data: weekLabels.map(w => { const x = weekList.find(v => v.week === w && v.line === L); return x ? (x.lb - x.tgt) / x.tgt * 100 : null; }), borderColor: colors[L], backgroundColor: colors[L], pointRadius: 5, borderWidth: 2.5, spanGaps: true, tension: 0.3 })) },
-    options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: "easeOutQuart" }, scales: { y: { beginAtZero: true, title: { display: true, text: "gas % over target" }, ticks: { callback: v => v + "%" } }, x: { title: { display: true, text: "week starting" } } } } });
+  drawChart("an-chart-trend", "#an-chart-trend", chartBase({
+    legend: { ...LEG, data: lines.map(L => LINE_NAME[L]) },
+    grid: { left: 52, right: 70, top: 42, bottom: weekLabels.length > 10 ? 58 : 36 },
+    xAxis: { ...AX, type: "category", boundaryGap: false, data: weekLabels.map(w => `wk ${shortDate(w)}`) },
+    yAxis: { ...AX, type: "value", name: "gas over target", nameTextStyle: { ...AX.nameTextStyle, align: "left" }, axisLabel: { ...AX.axisLabel, formatter: (v) => v + "%" } },
+    dataZoom: weekLabels.length > 10 ? [{ type: "inside", zoomOnMouseWheel: "shift" }, { ...ZOOM_SLIDER }] : [],
+    tooltip: { ...TIP, trigger: "axis", axisPointer: { type: "line", lineStyle: { color: COL.axis } }, formatter: (ps) => `<b>Week of ${shortDate(weekLabels[ps[0].dataIndex])}</b>` + ps.map(p => { const x = weekList.find(v => v.week === weekLabels[p.dataIndex] && LINE_NAME[v.line] === p.seriesName); return x ? `<div style="margin-top:5px">${dot(p.color)}${p.seriesName} <b>${pct(p.value)}</b> <span style="color:${COL.ink2}">${x.n} shifts · ${fmt(x.lb * G_PER_LB / x.cans, 1)} g/can</span></div>` : ""; }).join("") },
+    series: lines.map((L, li) => ({ id: "t" + L, name: LINE_NAME[L], type: "line", smooth: .3, symbol: "circle", symbolSize: 8, connectNulls: true,
+      data: weekLabels.map(w => { const x = weekList.find(v => v.week === w && v.line === L); return x ? Math.round((x.lb - x.tgt) / x.tgt * 1000) / 10 : null; }),
+      lineStyle: { color: colors[L], width: 2.5 }, itemStyle: { color: colors[L], borderColor: "#fff", borderWidth: 2 },
+      areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: colors[L] + "33" }, { offset: 1, color: colors[L] + "00" }] } },
+      endLabel: { show: true, formatter: LINE_NAME[L], color: COL.ink, fontFamily: FONT, fontSize: 12, fontWeight: 600 }, emphasis: { focus: "series" },
+      universalTransition: { enabled: true }, animationDuration: 1400, animationDelay: li * 150,
+      markLine: li === 0 ? { silent: true, symbol: "none", lineStyle: { color: COL.ink, width: 1, opacity: .5, type: "solid" }, label: { formatter: "on target", position: "insideEndTop", color: COL.ink2, fontFamily: FONT, fontSize: 11 }, data: [{ yAxis: 0 }] } : undefined })),
+  }));
 
   // ===== gas-open events (4 groups) =====
   const events = rawEvents.filter(e => lines.includes(e.line) && e.start_ts.slice(0, 10) >= from.value && e.start_ts.slice(0, 10) <= to.value);
@@ -671,34 +844,44 @@ async function loadAnalysis() {
     const list = events.filter(e => !evFilter || e.category === evFilter).sort((a, b) => catOrder.indexOf(a.category) - catOrder.indexOf(b.category) || b.lb - a.lb);
     $("#an-events-filter").innerHTML = evFilter ? `Showing <b>${CATS[evFilter]}</b> only — <a href="#" id="an-events-clear">show all</a>` : "";
     $("#an-events tbody").innerHTML = list.map(e => `<tr><td><span class="cat" style="--c:${CAT_COLORS[e.category]}"></span>${CATS[e.category] || e.category}</td><td>${e.line}</td><td>${fdt(e.start_ts)}</td><td>${fdt(e.end_ts)}</td><td class="num">${fmt(e.hrs, 1)}</td><td class="num">${fmt(e.lb)}</td><td class="num">${fmt(e.lb / e.hrs)}</td><td>${e.detected ? "<span class='empty'>" + e.cause + "</span>" : (e.cause || "")}</td></tr>`).join("") || `<tr><td colspan="8" class="empty">No events in this range.</td></tr>`;
-    $("#an-events-clear")?.addEventListener("click", (ev) => { ev.preventDefault(); evFilter = null; renderEvents(); anCharts.events.setActiveElements([]); anCharts.events.update(); });
+    $("#an-events-clear")?.addEventListener("click", (ev) => { ev.preventDefault(); evFilter = null; renderEvents(); });
     $("#an-events-kpis").innerHTML = catOrder.map(c => { const v = byCat[c]; return `<div class="kpi mini-kpi ${evFilter === c ? "on" : ""}" data-cat="${c}" style="--c:${CAT_COLORS[c]}"><h3><span class="cat" style="--c:${CAT_COLORS[c]}"></span>${CATS[c]}${c === "startup" ? " <small>(expected)</small>" : ""}</h3><div class="big">${fmt(v.lb)} lb<small>${v.n} event${v.n === 1 ? "" : "s"} · ${fmt(v.hrs, 1)} h${v.hrs ? " · " + fmt(v.lb / v.hrs) + " lb/hr" : ""}</small></div><p class="hint">${CAT_NOTE[c]}</p></div>`; }).join("")
       + `<div class="kpi mini-kpi total"><h3>Opportunity</h3><div class="big">${fmt(opportunity)} lb<small>end of schedule + changeover + downtime · ${fmt(opportunity / (gasTot + evTot) * 100, 1)}% of gas in the period</small></div></div>`;
     $$("#an-events-kpis .kpi[data-cat]").forEach(k => k.onclick = () => { evFilter = evFilter === k.dataset.cat ? null : k.dataset.cat; renderEvents(); });
   };
   renderEvents();
-  mkChart("events", "#an-chart-events", { type: "bar",
-    data: { labels: catOrder.map(c => CATS[c]), datasets: lines.map(L => ({ label: `${L} Line`, data: catOrder.map(c => byCat[c][L] || 0), backgroundColor: L === "C" ? catOrder.map(c => CAT_COLORS[c]) : catOrder.map(c => CAT_COLORS[c] + "88"), borderColor: catOrder.map(c => CAT_COLORS[c]), borderWidth: L === "D" ? 2 : 0, borderRadius: 6, stack: "s" })) },
-    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: "easeOutQuart" },
-      onClick: (evt, els) => { if (!els.length) return; const c = catOrder[els[0].index]; evFilter = evFilter === c ? null : c; renderEvents(); },
-      plugins: { legend: { display: lines.length > 1 }, tooltip: { callbacks: { footer: (its) => { const c = catOrder[its[0].dataIndex]; return `${byCat[c].n} events · ${fmt(byCat[c].hrs, 1)} h`; } } } },
-      scales: { x: { stacked: true, beginAtZero: true, title: { display: true, text: "gas lb" } }, y: { stacked: true } } } });
+  drawChart("an-chart-events", "#an-chart-events", chartBase({
+    legend: { ...LEG, show: lines.length > 1, data: lines.map(L => LINE_NAME[L]) },
+    grid: { left: 118, right: 24, top: lines.length > 1 ? 40 : 14, bottom: 34 },
+    yAxis: { ...AX, type: "category", inverse: true, data: catOrder.map(c => CATS[c] + (c === "startup" ? " (expected)" : "")), axisLabel: { ...AX.axisLabel, color: COL.ink, fontSize: 12.5 }, splitLine: { show: false } },
+    xAxis: { ...AX, type: "value", axisLabel: { ...AX.axisLabel, formatter: (v) => v ? fmt(v) + " lb" : "0" } },
+    tooltip: { ...TIP, trigger: "axis", axisPointer: { type: "shadow", shadowStyle: { color: "rgba(212,241,255,.45)" } }, formatter: (ps) => { const c = catOrder[ps[0].dataIndex]; return `<b>${CATS[c]}</b>` + ps.map(p => `<div style="margin-top:5px">${dot(p.color)}${p.seriesName} <b>${fmt(p.value)} lb</b></div>`).join("") + `<div style="color:${COL.ink2};margin-top:4px">${byCat[c].n} events · ${fmt(byCat[c].hrs, 1)} h · click to filter</div>`; } },
+    series: lines.map((L, li) => ({ id: "e" + L, name: LINE_NAME[L], type: "bar", stack: "s", barMaxWidth: 26, data: catOrder.map(c => ({ value: Math.round(byCat[c][L] || 0), itemStyle: { opacity: c === "startup" ? .45 : 1 } })), itemStyle: { color: colors[L], borderRadius: li === lines.length - 1 ? [0, 4, 4, 0] : 0, borderColor: "#fff", borderWidth: 1 }, universalTransition: { enabled: true }, animationDelay: (i) => i * 90 + li * 120 })),
+  }), { click: (p) => { const c = catOrder[p.dataIndex]; evFilter = evFilter === c ? null : c; renderEvents(); } });
 
   // ===== start-of-run effect =====
   const runsList = [];
   lines.forEach(L => { const g = all.filter(r => r.line === L).sort((a, b) => a.date.localeCompare(b.date) || a.shift - b.shift); let cur = null, prev = null;
     g.forEach(r => { const t = new Date(r.date).getTime() + SHIFT_START[r.shift] * 3600e3; if (prev == null || t - prev > 9 * 3600e3) { cur = { line: L, shifts: [] }; runsList.push(cur); } cur.shifts.push(r); prev = t; }); });
   const runStats = runsList.filter(rn => rn.shifts.length >= 2).map(rn => { const first = rn.shifts[0], rest = rn.shifts.slice(1); const wF = first.wastePct, wR = wasteOf(rest); const gR = rest.reduce((a, r) => a + r.totalLb, 0) / rest.reduce((a, r) => a + r.cans, 0) * G_PER_LB;
-    return { rn, first, rest, wF, wR, cpmF: first.avgCpm, cpmR: med(rest.map(r => r.avgCpm)), extra: first.totalLb - first.cans * gR / G_PER_LB, label: `${rn.line} ${first.date.slice(5)}`, items: [...new Set(rn.shifts.flatMap(r => r.itemRows.map(x => x.code)))].join(", ") }; });
+    return { rn, first, rest, wF, wR, cpmF: first.avgCpm, cpmR: med(rest.map(r => r.avgCpm)), extra: first.totalLb - first.cans * gR / G_PER_LB, label: `${rn.line} ${shortDate(first.date)}`, items: [...new Set(rn.shifts.flatMap(r => r.itemRows.map(x => x.code)))].join(", ") }; });
   const firsts = runStats.map(s => s.first), rests = runStats.flatMap(s => s.rest);
   const extraTot = runStats.reduce((x, s) => x + Math.max(0, s.extra), 0);
   $("#an-start-text").innerHTML = runStats.length ? `The first shift of a run is consistently the worst: median <b>${fmt(med(firsts.map(r => r.wastePct)))}% over target</b> against <b>${fmt(med(rests.map(r => r.wastePct)))}%</b> for the shifts that follow. The reason is visible in the filler — first shifts average ${fmt(med(firsts.map(r => r.avgCpm)))} cpm versus ${fmt(med(rests.map(r => r.avgCpm)))} cpm later — so the same fixed bleed is spread over far fewer cans while the line is being brought up. In ${runStats.length} runs that cost about <b>${fmt(extraTot)} lb</b> more than if the first shift had run at the rest of the run's rate.` : "Need runs of 2+ shifts to measure.";
   $("#an-start-kpis").innerHTML = runStats.length ? `<div class="kpi mini-kpi"><h3>First shift of a run</h3><div class="big">${fmt(med(firsts.map(r => r.wastePct)))}%<small>median waste · ${firsts.length} shifts · ${fmt(med(firsts.map(r => r.avgCpm)))} cpm · ${fmt(med(firsts.map(r => r.eff)))}% efficiency</small></div></div><div class="kpi mini-kpi"><h3>Later shifts</h3><div class="big">${fmt(med(rests.map(r => r.wastePct)))}%<small>median waste · ${rests.length} shifts · ${fmt(med(rests.map(r => r.avgCpm)))} cpm · ${fmt(med(rests.map(r => r.eff)))}% efficiency</small></div></div>` : "";
-  $("#an-start-table tbody").innerHTML = runStats.map(s => `<tr><td>${s.label}</td><td>${s.rn.line}</td><td>${s.items}</td><td class="num waste">${fmt(s.wF)}%</td><td class="num">${fmt(s.wR)}%</td><td class="num">${s.cpmF == null ? "—" : fmt(s.cpmF) + " cpm"}</td><td class="num">${s.cpmR == null ? "—" : fmt(s.cpmR) + " cpm"}</td><td class="num">${s.extra > 0 ? fmt(s.extra) + " lb" : "—"}</td></tr>`).join("");
-  mkChart("start", "#an-chart-start", { type: "bar",
-    data: { labels: runStats.map(s => s.label), datasets: [{ label: "first shift of run", data: runStats.map(s => s.wF), backgroundColor: "#c27a12", borderRadius: 6 }, { label: "rest of run", data: runStats.map(s => s.wR), backgroundColor: runStats.map(s => colors[s.rn.line]), borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: false, animation: { duration: 900, easing: "easeOutQuart" }, plugins: { tooltip: { callbacks: { afterBody: (its) => { const s = runStats[its[0].dataIndex]; return `${s.items}\nfiller ${s.cpmF == null ? "—" : fmt(s.cpmF)} cpm first shift vs ${s.cpmR == null ? "—" : fmt(s.cpmR)} cpm later`; } } } },
-      scales: { y: { beginAtZero: true, title: { display: true, text: "gas % over target" }, ticks: { callback: v => v + "%" } }, x: { title: { display: true, text: "run (line · first day)" } } } } });
+  $("#an-start-table tbody").innerHTML = runStats.map(s => `<tr><td class="date">${s.label}</td><td>${s.rn.line}</td><td>${s.items}</td><td class="num waste">${fmt(s.wF)}%</td><td class="num">${fmt(s.wR)}%</td><td class="num">${s.cpmF == null ? "—" : fmt(s.cpmF) + " cpm"}</td><td class="num">${s.cpmR == null ? "—" : fmt(s.cpmR) + " cpm"}</td><td class="num">${s.extra > 0 ? fmt(s.extra) + " lb" : "—"}</td></tr>`).join("");
+  drawChart("an-chart-start", "#an-chart-start", chartBase({
+    legend: { ...LEG, data: ["First shift of the run", "Rest of the run"] },
+    grid: { left: 52, right: 16, top: 42, bottom: runStats.length > 18 ? 92 : runStats.length > 10 ? 64 : 36 },
+    xAxis: { ...AX, type: "category", data: runStats.map(s => s.label), axisLabel: { ...AX.axisLabel, interval: runStats.length > 18 ? "auto" : 0, rotate: runStats.length > 10 ? 30 : 0 } },
+    yAxis: { ...AX, type: "value", name: "gas over target", nameTextStyle: { ...AX.nameTextStyle, align: "left" }, axisLabel: { ...AX.axisLabel, formatter: (v) => v + "%" } },
+    dataZoom: runStats.length > 18 ? [{ type: "inside", zoomOnMouseWheel: "shift" }, { ...ZOOM_SLIDER }] : [],
+    tooltip: { ...TIP, trigger: "axis", axisPointer: { type: "shadow", shadowStyle: { color: "rgba(212,241,255,.45)" } }, formatter: (ps) => { const s = runStats[ps[0].dataIndex]; return `<b>${LINE_NAME[s.rn.line]} run from ${shortDate(s.first.date)}</b><div style="margin-top:5px">${dot(COL.amber)}First shift <b>${pct(s.wF)}</b> · ${s.cpmF == null ? "—" : fmt(s.cpmF) + " cpm"}</div><div>${dot(colors[s.rn.line])}Rest of run <b>${pct(s.wR)}</b> · ${s.cpmR == null ? "—" : fmt(s.cpmR) + " cpm"}</div><div style="color:${COL.ink2};margin-top:4px">${esc(s.items)}</div>`; } },
+    series: [
+      { id: "f", name: "First shift of the run", type: "bar", barMaxWidth: 16, barGap: "15%", data: runStats.map(s => Math.round(s.wF * 10) / 10), itemStyle: { color: COL.amber, borderRadius: 4 }, universalTransition: { enabled: true }, animationDelay: (i) => i * 30 },
+      { id: "r", name: "Rest of the run", type: "bar", barMaxWidth: 16, data: runStats.map(s => ({ value: Math.round(s.wR * 10) / 10, itemStyle: { color: colors[s.rn.line] } })), itemStyle: { color: COL.C, borderRadius: 4 }, universalTransition: { enabled: true }, animationDelay: (i) => i * 30 + 80 },
+    ],
+  }));
 
   // ===== not logged =====
   const idleRows = []; const runKeys = new Set(allRuns.map(r => `${r.line}|${r.run_date}|${r.shift}`));
@@ -717,17 +900,23 @@ async function loadAnalysis() {
   revealNow();
 }
 $("#an-item").addEventListener("change", loadAnalysis);
-$("#an-line").addEventListener("click", (e) => { const b = e.target.closest("button[data-v]"); if (!b || b.classList.contains("on")) return; $$("#an-line button").forEach(x => x.classList.toggle("on", x === b)); loadAnalysis(); });
-$("#an-refresh").addEventListener("click", loadAnalysis);
-$$(".an-index a").forEach(link => link.addEventListener("click", (e) => { e.preventDefault(); const t = $("#" + link.dataset.target); if (!t) return; const y = t.getBoundingClientRect().top + window.scrollY - 160; window.scrollTo({ top: y, behavior: "smooth" }); }));
-const anObserver = new IntersectionObserver((entries) => { entries.forEach(en => { if (en.isIntersecting) $$(".an-index a").forEach(l => l.classList.toggle("active", l.dataset.target === en.target.id)); }); }, { rootMargin: "-25% 0px -65% 0px" });
+segBind("#an-line", () => loadAnalysis());
+["#an-from", "#an-to"].forEach(id => $(id).addEventListener("change", loadAnalysis));
+// section index: sticky on the left; on a phone it is a sheet opened from the floating pill
+const siPill = $("#si-pill"), secIndex = $("#an-index");
+const setSheet = (open) => { secIndex.classList.toggle("open", open); siPill.setAttribute("aria-expanded", String(open)); };
+siPill.addEventListener("click", () => setSheet(!secIndex.classList.contains("open")));
+document.addEventListener("click", (e) => { if (secIndex.classList.contains("open") && !e.target.closest("#an-index, #si-pill")) setSheet(false); });
+$$("#an-index a").forEach(link => link.addEventListener("click", (e) => { e.preventDefault(); setSheet(false); const t = $("#" + link.dataset.target); if (!t) return; t.closest(".reveal")?.classList.add("in"); const y = t.getBoundingClientRect().top + window.scrollY - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--hdr")) || 68) - 96; window.scrollTo({ top: y, behavior: REDUCED ? "auto" : "smooth" }); }));
+const anObserver = new IntersectionObserver((entries) => { entries.forEach(en => { if (!en.isIntersecting) return; $$("#an-index a").forEach(l => l.classList.toggle("on", l.dataset.target === en.target.id)); const cur = $(`#an-index a[data-target="${en.target.id}"]`); if (cur) $("#si-cur").textContent = cur.textContent; }); }, { rootMargin: "-25% 0px -65% 0px" });
 $$("#page-analysis h2[id]").forEach(h2 => anObserver.observe(h2));
+window.addEventListener("scroll", () => { if (currentPage === "analysis" && window.scrollY < 260) { $$("#an-index a").forEach((l, i) => l.classList.toggle("on", i === 0)); $("#si-cur").textContent = "Overview"; } }, { passive: true });
 
 /* ---------- scroll reveal (Onyx / Palantir style) ---------- */
 function splitWords(el) { if (el.dataset.split) return; el.dataset.split = "1"; const words = el.textContent.trim().split(/\s+/); el.innerHTML = words.map((w, i) => `<span class="w"><span style="--i:${i}">${w}</span></span>`).join(" "); }
 $$(".reveal h2").forEach(splitWords);
-(() => { const sent = $("#an-sentinel"), head = $(".an-head"); if (!sent || !head) return;
-  const check = () => { if ($("#page-analysis").classList.contains("hidden")) return; head.classList.toggle("floating", sent.getBoundingClientRect().top < 72); };
+// the controls bars turn frosted once they stick under the header
+(() => { const check = () => $$(".ctl").forEach(c => { if (!c.offsetParent) return; const top = parseFloat(getComputedStyle(c).top) || 0; c.classList.toggle("floating", window.scrollY > 40 && c.getBoundingClientRect().top <= top + 1); });
   window.addEventListener("scroll", check, { passive: true }); window.addEventListener("hashchange", () => setTimeout(check, 100)); })();
 const revealObs = new IntersectionObserver((entries) => { entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add("in"); revealObs.unobserve(en.target); } }); }, { rootMargin: "0px 0px -10% 0px", threshold: 0.08 });
 function revealNow() { $$(".reveal:not(.in)").forEach(el => { const r = el.getBoundingClientRect(); if (r.top < window.innerHeight * 0.9) el.classList.add("in"); else revealObs.observe(el); }); }
