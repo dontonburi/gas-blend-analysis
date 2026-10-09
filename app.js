@@ -349,55 +349,100 @@ function enactGasRows(enactRows) {
     return { ...k, line, shift: sh, date, item: it ? code : part, gasser: k.process_leaf || pn };
   }).filter(Boolean);
 }
+/* >>> gas-weight-compare: paper checks and Enact are the same measurement; shown per shift with the BOM and the waste factor */
+function gasWeightModel(checks, enactRows, shiftRows) {
+  const key = (l, d, s) => `${l}|${d}|${s}`, rows = {}; let noTime = 0, low = 0;
+  checks.forEach(c => { const w = Number(c.weight_g); if (!(w >= 2.3)) { if (w > 0) low++; return; } const s = checkShift(c); if (!s) { noTime++; return; }
+    const line = c.line || "C", k = key(line, s.date, s.shift), r = rows[k] = rows[k] || { line, date: s.date, shift: s.shift };
+    const p = r.paper = r.paper || { n: 0, sum: 0, mn: Infinity, mx: -Infinity, items: {}, corr: 0 };
+    p.n++; p.sum += w; p.mn = Math.min(p.mn, w); p.mx = Math.max(p.mx, w); if (c.item_code) p.items[c.item_code] = (p.items[c.item_code] || 0) + 1; if (c.correction_g != null && c.correction_g !== "") p.corr++; });
+  const eg = enactGasRows(enactRows), ignored = (enactRows || []).filter(k => /^(operating )?gas weight$/i.test(String(k.feature_name || "").trim()) && k.shift_name).length - eg.filter(k => k.shift).length;
+  eg.filter(k => k.shift).forEach(k => { const n = Number(k.piece_count) || 0, m = Number(k.mean); if (!(n > 0) || isNaN(m)) return;
+    const kk = key(k.line, k.date, k.shift), r = rows[kk] = rows[kk] || { line: k.line, date: k.date, shift: k.shift };
+    const e = r.enact = r.enact || { n: 0, sum: 0, gassers: [], items: new Set() }; e.n += n; e.sum += m * n; e.items.add(k.item); e.gassers.push({ gasser: k.gasser, item: k.item, n, mean: m, sd: Number(k.sd_long_term) }); });
+  const byShift = {}; (shiftRows || []).forEach(s => byShift[key(s.line, s.date, s.shift)] = s);
+  const bomOf = (code) => items.find(i => i.code === normCode(code))?.bom_gas_g_per_can ?? null;
+  const list = Object.values(rows).map(r => {
+    const s = byShift[key(r.line, r.date, r.shift)];
+    if (r.paper) r.paper.g = r.paper.sum / r.paper.n;
+    if (r.enact) r.enact.g = r.enact.sum / r.enact.n;
+    const sheetItem = r.paper ? Object.entries(r.paper.items).sort((x, y) => y[1] - x[1])[0]?.[0] : null;
+    r.item = sheetItem || (s && s.items) || (r.enact ? [...r.enact.items].join(" + ") : "") || "—";
+    r.n = (r.paper?.n || 0) + (r.enact?.n || 0);
+    r.measured = r.n ? ((r.paper?.sum || 0) + (r.enact?.sum || 0)) / r.n : null;     // cans-weighted average of both sources
+    r.bom = s && s.bomLb > 0 && s.cans ? s.bomLb * G_PER_LB / s.cans : (r.item.includes("+") ? null : bomOf(r.item));
+    r.vsBom = r.bom && r.measured ? (r.measured - r.bom) / r.bom * 100 : null;
+    if (s && s.totalLb != null && s.cans && !s.nonGasOnly) { r.cans = s.cans; r.lb = s.totalLb; r.meterG = s.totalLb * G_PER_LB / s.cans;
+      r.waste = r.measured ? (r.meterG - r.measured) / r.measured * 100 : null; r.wasteBom = s.bomLb > 0 ? (s.totalLb - s.bomLb) / s.bomLb * 100 : null; }
+    return r; }).sort((x, y) => y.date.localeCompare(x.date) || y.shift - x.shift || x.line.localeCompare(y.line));
+  const span = (arr) => arr.length ? [arr.reduce((m, d) => d < m ? d : m), arr.reduce((m, d) => d > m ? d : m)] : null;
+  const coverage = [
+    { label: "Paper checks", sub: [...new Set(list.filter(r => r.paper).map(r => r.line))].sort().map(l => l + " Line").join(", ") || "none", span: span(list.filter(r => r.paper).map(r => r.date)), cls: "paper" },
+    { label: "Enact", sub: [...new Set(list.filter(r => r.enact).map(r => r.line))].sort().map(l => l + " Line").join(", ") || "none", span: span(list.filter(r => r.enact).map(r => r.date)), cls: "enact" },
+    ...["C", "D"].map(L => ({ label: `Meter + runs, ${L}`, sub: "waste possible", span: span((shiftRows || []).filter(s => s.line === L && s.totalLb != null && s.cans).map(s => s.date)), cls: "meter" })),
+  ];
+  return { rows: list, coverage, noTime, low, ignored: Math.max(0, ignored) };
+}
+let gwModel = null, gwLine = "ALL", gwAll = false, gwItem = null;
+function renderGasWeight() {
+  const m = gwModel; if (!m) return;
+  const both = m.rows.filter(r => r.paper && r.enact).length, wasted = m.rows.filter(r => r.waste != null), medW = med(wasted.map(r => r.waste));
+  // coverage timeline
+  const dates = m.coverage.flatMap(c => c.span || []), lo = dates.length ? dates.reduce((a, d) => d < a ? d : a) : null, hi = dates.length ? dates.reduce((a, d) => d > a ? d : a) : null;
+  if (lo) { const t0 = new Date(lo.slice(0, 8) + "01T00:00").getTime(), t1 = new Date(hi + "T00:00").getTime() + 6 * 864e5, x = (d) => (new Date(d + "T00:00").getTime() - t0) / (t1 - t0) * 100;
+    const months = []; for (let d = new Date(t0); d.getTime() <= t1; d.setMonth(d.getMonth() + 1)) months.push(d.toLocaleDateString([], { month: "short" }));
+    $("#gw-cov").innerHTML = `<div class="tl">${m.coverage.map((c, i) => `<div class="lab">${c.label}<small>${esc(c.sub)}</small></div><div class="track">${c.span ? (() => { const l = x(c.span[0]), w = Math.max(.9, x(c.span[1]) - l + .6); return `<div class="bar ${c.cls}${l + w > 78 ? " right" : ""}" style="left:${l}%;width:${w}%;animation-delay:${i * 110}ms"><span>${shortDate(c.span[0])}–${shortDate(c.span[1])}</span></div>`; })() : `<span class="none">no data</span>`}</div>`).join("")}<div class="axis">${months.map(x => `<span>${x}</span>`).join("")}</div></div>`;
+  } else $("#gw-cov").innerHTML = `<p class="note">No paper checks or Enact gas weights yet.</p>`;
+  $("#gw-kpis").innerHTML = [
+    ["Paper shifts", m.rows.filter(r => r.paper).length, `${fmt(m.rows.reduce((a, r) => a + (r.paper?.n || 0), 0))} readings`, "paper"],
+    ["Enact shifts", m.rows.filter(r => r.enact).length, `${fmt(m.rows.reduce((a, r) => a + (r.enact?.n || 0), 0))} cans weighed`, "enact"],
+    ["Both on one shift", both, both ? "averaged into one target" : "nothing to compare yet", "both"],
+    ["With a waste factor", wasted.length, wasted.length ? `median ${pct(medW)} vs measured` : "needs meter data + runs", "meter"],
+  ].map(([h, v, s, c]) => `<div class="kpi mini-kpi gw-${c}"><h3>${h}</h3><div class="big">${v}<small>${s}</small></div></div>`).join("");
+  // table
+  const full = m.rows.filter(r => (gwLine === "ALL" || r.line === gwLine) && (!gwItem || r.item.split(" + ").includes(gwItem))), list = gwAll || gwItem ? full : full.slice(0, 10);
+  const more = $("#gw-more"); more.hidden = full.length <= 10 || !!gwItem; more.textContent = gwAll ? "Show the latest 10" : `Show all ${full.length} shifts`;
+  $("#gw-filter").innerHTML = gwItem ? `Showing <b>${esc(gwItem)}</b> only · <a href="#" id="gw-clear">show all items</a>` : "";
+  $("#gw-clear")?.addEventListener("click", (e) => { e.preventDefault(); gwItem = null; renderGasWeight(); });
+  const dash = '<span class="muted">—</span>';
+  $("#gw-table tbody").innerHTML = list.map((r, i) => `<tr class="${r.enact ? "run has-g" : ""}" data-i="${i}"><td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td><b>${esc(r.item)}</b></td>
+      <td class="nw">${r.paper ? '<span class="src paper">Paper</span>' : ""}${r.enact ? '<span class="src enact">Enact</span>' : ""}</td>
+      <td class="num grp">${r.paper ? `<b>${fmt(r.paper.g, 2)}</b> <small>${r.paper.n} rdg · ${fmt(r.paper.mn, 1)}–${fmt(r.paper.mx, 1)}</small>` : dash}</td>
+      <td class="num">${r.enact ? `<b>${fmt(r.enact.g, 2)}</b> <small>${r.enact.n} pcs</small>` : dash}</td>
+      <td class="num grp">${r.bom ? fmt(r.bom, 2) : '<span class="muted">no BOM</span>'}</td>
+      <td class="num ${r.vsBom == null ? "" : r.vsBom > 0 ? "over" : "under"}">${pct(r.vsBom)}</td>
+      <td class="num grp">${r.meterG ? `${fmt(r.meterG, 1)} <small>${fmt(r.lb)} lb · ${fmt(r.cans)} cans</small>` : '<span class="muted">no meter data</span>'}</td>
+      <td class="num">${r.waste == null ? dash : `<span class="waste-v">${pct(r.waste)}</span>`}</td>
+      <td class="num">${r.wasteBom == null ? dash : pct(r.wasteBom)}</td></tr>`
+    + (r.enact ? r.enact.gassers.map(g => `<tr class="sub hidden" data-for="${i}"><td colspan="5">${esc(g.gasser)} · ${esc(g.item)}</td><td class="num grp"></td><td class="num">${fmt(g.mean, 2)} <small>${g.n} pcs · sd ${fmt(g.sd, 2)}</small></td><td class="num grp"></td><td class="num">${pct(r.bom ? (g.mean - r.bom) / r.bom * 100 : null)}</td><td class="num grp" colspan="3"></td></tr>`).join("") : "")).join("")
+    || `<tr><td colspan="12" class="empty">No gas weights for this line yet.</td></tr>`;
+  // by item
+  const by = {};
+  m.rows.filter(r => gwLine === "ALL" || r.line === gwLine).forEach(r => r.item.split(" + ").forEach(code => { const o = by[code] = by[code] || { code, shifts: 0, pN: 0, pS: 0, eN: 0, eS: 0, lb: 0, tgt: 0, bom: r.bom };
+    o.shifts++; if (r.paper) { o.pN += r.paper.n; o.pS += r.paper.sum; } if (r.enact) { o.eN += r.enact.n; o.eS += r.enact.sum; } if (r.waste != null && !r.item.includes("+")) { o.lb += r.lb; o.tgt += r.cans * r.measured / G_PER_LB; } }));
+  $("#gw-items tbody").innerHTML = Object.values(by).sort((x, y) => y.shifts - x.shifts || x.code.localeCompare(y.code)).map(o => { const it = items.find(i => i.code === normCode(o.code)) || {}, p = o.pN ? o.pS / o.pN : null, e = o.eN ? o.eS / o.eN : null, mm = (o.pN + o.eN) ? (o.pS + o.eS) / (o.pN + o.eN) : null, bom = it.bom_gas_g_per_can ?? null;
+    return `<tr class="run${gwItem === o.code ? " selected" : ""}" data-item="${esc(o.code)}"><td><b>${esc(o.code)}</b>${it.description ? `<span class="sub">${esc(it.description)}</span>` : ""}</td><td>${esc(it.brand || "—")}</td><td class="nw">${p != null ? '<span class="src paper">Paper</span>' : ""}${e != null ? '<span class="src enact">Enact</span>' : ""}</td><td class="num">${o.shifts}</td>
+      <td class="num grp">${p == null ? dash : `<b>${fmt(p, 2)}</b> <small>${fmt(o.pN)} rdg</small>`}</td><td class="num">${e == null ? dash : `<b>${fmt(e, 2)}</b> <small>${fmt(o.eN)} pcs</small>`}</td>
+      <td class="num grp">${bom ? fmt(bom, 2) : '<span class="muted">no BOM</span>'}</td><td class="num ${bom && mm ? (mm > bom ? "over" : "under") : ""}">${bom && mm ? pct((mm - bom) / bom * 100) : "—"}</td>
+      <td class="num grp">${o.tgt ? `<span class="waste-v">${pct((o.lb - o.tgt) / o.tgt * 100)}</span>` : dash}</td></tr>`; }).join("") || `<tr><td colspan="9" class="empty">Nothing yet.</td></tr>`;
+  $("#gw-ignored tbody").innerHTML = [["Paper readings with no time written", "Can't be placed in a shift", m.noTime], ["Paper readings under 2.3 g", "Below the cut-off (a mis-read)", m.low], ["Enact gas weights for other parts", "Not on the gas-blend Items list (for example “Regular Cream”)", m.ignored]]
+    .map(([w, why, n]) => `<tr><td>${w}</td><td>${why}</td><td class="num">${fmt(n)}</td></tr>`).join("");
+}
+$("#gw-table tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr.has-g"); if (!tr) return; const open = tr.classList.toggle("open"); $$(`#gw-table tr.sub[data-for="${tr.dataset.i}"]`).forEach(x => x.classList.toggle("hidden", !open)); });
+$("#gw-items tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-item]"); if (!tr) return; gwItem = gwItem === tr.dataset.item ? null : tr.dataset.item; renderGasWeight(); $("#h-gw").scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" }); });
+$("#gw-more").addEventListener("click", () => { gwAll = !gwAll; renderGasWeight(); });
+segBind("#gw-line", (v) => { gwLine = v; renderGasWeight(); });
+/* <<< gas-weight-compare */
+
 async function loadChecks() {
-  const [rows, runs, enactRows] = await Promise.all([fetchAll("gas_weight_checks", "check_date", false), fetchAll("production_runs", "run_date"), fetchAll("enact_kpi", "summary_date", false).catch(() => [])]);
-  // shift summaries plus the daily roll-up (shown as "Day"); only shift rows feed the waste-factor target
-  const gasRows = enactGasRows(enactRows).sort((a, b) => b.date.localeCompare(a.date) || (b.shift || 9) - (a.shift || 9) || a.line.localeCompare(b.line) || String(a.gasser).localeCompare(String(b.gasser)) || String(a.item).localeCompare(String(b.item)));
-  const ignored = enactRows.length - enactGasRows(enactRows).length;
-  $("#enact-status").textContent = enactRows.length ? `— ${gasRows.filter(k => k.shift).length} shift and ${gasRows.filter(k => !k.shift).length} daily summaries of gas weight (${ignored} other rows ignored: pressure, can weights, Taptone, parts not on the gas-blend Items list)` : "— nothing received yet; the receiver adds rows here automatically after each shift";
-  $("#enact-table tbody").innerHTML = gasRows.slice(0, 200).map(k => `<tr><td class="date">${k.date}</td><td>${k.shift || "Day"}</td><td>${k.line} · ${k.gasser}</td><td>${k.item}</td><td class="num">${fmt(k.subgroup_count)}</td><td class="num">${fmt(k.piece_count)}</td><td class="num"><b>${fmt(k.mean, 2)}</b></td><td class="num">${fmt(k.sd_long_term, 2)}</td><td class="num">${fmt(k.oos_count)}</td></tr>`).join("") || `<tr><td colspan="9" class="empty">No gas weight data from Enact yet.</td></tr>`;
+  const [rows, enactRows] = await Promise.all([fetchAll("gas_weight_checks", "check_date", false), fetchAll("enact_kpi", "summary_date", false).catch(() => [])]);
   const w = rows.map(r => Number(r.weight_g)).filter(x => !isNaN(x) && x > 0).sort((a, b) => a - b);
-  const mean = w.reduce((a, b) => a + b, 0) / (w.length || 1), med = w.length ? w[Math.floor(w.length / 2)] : null;
-  $("#checks-stats").innerHTML = `<span>Readings <b>${fmt(w.length)}</b></span><span>Mean <b>${fmt(mean, 2)} g</b></span><span>Median <b>${fmt(med, 2)} g</b></span><span>Min <b>${fmt(w[0], 1)} g</b></span><span>Max <b>${fmt(w[w.length - 1], 1)} g</b></span>`;
-  // group by line / date / shift
-  const groups = {};
-  rows.forEach(c => {
-    const s = checkShift(c); if (!s) return;
-    const k = `${c.line || "C"}|${s.date}|${s.shift}`;
-    const g = groups[k] = groups[k] || { line: c.line || "C", date: s.date, shift: s.shift, weights: [], gassers: new Set(), times: new Set(), initials: new Set(), corr: 0 };
-    const wt = Number(c.weight_g); if (wt > 0) g.weights.push(wt);
-    g.gassers.add(c.gasser); if (c.check_time) g.times.add(c.check_time); if (c.initials) g.initials.add(c.initials); if (c.correction_g != null && c.correction_g !== "") g.corr++;
-  });
-  const runsFor = (line, date, shift) => runs.filter(r => r.line === line && r.run_date === date && r.shift === shift && r.item_code);
-  const itemsFor = (line, date, shift) => [...new Set(runsFor(line, date, shift).map(r => r.item_code))].join(" + ") || "<span class='empty'>no run logged</span>";
-  const bomFor = (line, date, shift) => { // can-weighted BOM g/can across the items run that shift
-    let cans = 0, g = 0; runsFor(line, date, shift).forEach(r => { const it = items.find(i => i.code === r.item_code); if (it?.bom_gas_g_per_can) { const n = r.cases * (r.cans_per_case || 12); cans += n; g += n * it.bom_gas_g_per_can; } });
-    return cans ? g / cans : null; };
-  // item for each group: explicit item_code on the readings if present, else the biggest run that shift
-  Object.values(groups).forEach(g => { const explicit = rows.find(c => c.item_code && `${c.line || "C"}|${checkShift(c)?.date}|${checkShift(c)?.shift}` === `${g.line}|${g.date}|${g.shift}`); g.item = explicit ? explicit.item_code : (runsFor(g.line, g.date, g.shift).sort((x, y) => y.cases - x.cases)[0]?.item_code || null); });
-  const byItem = {};
-  Object.values(groups).forEach(g => { const k = g.item || "(no run logged)"; const o = byItem[k] = byItem[k] || { item: k, weights: [], shifts: 0, lines: new Set(), dates: new Set() }; o.weights.push(...g.weights); o.shifts++; o.lines.add(g.line); o.dates.add(g.date); });
-  const itemStats = Object.values(byItem).map(o => { const w = [...o.weights].sort((x, y) => x - y), n = w.length, m = n ? w.reduce((x, y) => x + y, 0) / n : 0, sd = n ? Math.sqrt(w.reduce((x, y) => x + (y - m) ** 2, 0) / n) : 0; const it = items.find(i => i.code === o.item) || {}; const ds = [...o.dates].sort();
-    return { ...o, n, m, sd, med: n ? w[Math.floor(n / 2)] : null, min: w[0], max: w[n - 1], brand: it.brand || "", bom: it.bom_gas_g_per_can, dates: ds.length > 1 ? `${ds[0]} → ${ds[ds.length - 1]}` : ds[0] || "" }; }).sort((x, y) => y.n - x.n);
-  $("#checks-items tbody").innerHTML = itemStats.map(o => `<tr class="run" data-item="${o.item}"><td><b>${o.item}</b></td><td>${o.brand}</td><td>${[...o.lines].join(", ")}</td><td class="num">${fmt(o.n)}</td><td class="num">${o.shifts}</td><td class="num"><b>${fmt(o.m, 2)}</b></td><td class="num">${fmt(o.med, 2)}</td><td class="num">${fmt(o.min, 1)}</td><td class="num">${fmt(o.max, 1)}</td><td class="num">${fmt(o.sd, 2)}</td><td class="num">${o.bom ? fmt(o.bom, 2) : "—"}</td><td class="num ${o.bom ? (o.m > o.bom ? "over" : "under") : ""}">${o.bom ? (o.m > o.bom ? "+" : "") + fmt((o.m - o.bom) / o.bom * 100) + "%" : "—"}</td><td>${o.dates}</td></tr>`).join("");
-  let itemFilter = null;
-  const renderShifts = () => {
-  $("#checks-shift-filter").innerHTML = itemFilter ? `— showing ${itemFilter} · <a href="#" id="checks-clear">show all</a>` : "";
-  $("#checks-clear")?.addEventListener("click", (e) => { e.preventDefault(); itemFilter = null; $$("#checks-items tr.run").forEach(t => t.classList.remove("selected")); renderShifts(); });
-  const tb = $("#checks-table tbody"); tb.innerHTML = "";
-  Object.values(groups).filter(g => !itemFilter || (g.item || "(no run logged)") === itemFilter).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line)).forEach(g => {
-    const ws = [...g.weights].sort((a, b) => a - b); const n = ws.length; if (!n) return;
-    const m = ws.reduce((a, b) => a + b, 0) / n, sd = Math.sqrt(ws.reduce((a, b) => a + (b - m) ** 2, 0) / n);
-    const tr = document.createElement("tr");
-    const bom = bomFor(g.line, g.date, g.shift); const dev = bom ? (m - bom) / bom * 100 : null;
-    tr.innerHTML = `<td>${g.line}</td><td class="date">${g.date}</td><td>${g.shift}</td><td>${g.item || itemsFor(g.line, g.date, g.shift)}</td><td>${[...g.gassers].sort().join(", ")}</td><td>${[...g.times].sort().join(", ")}</td>
-      <td class="num">${n}</td><td class="num"><b>${fmt(m, 2)}</b></td><td class="num">${fmt(ws[Math.floor(n / 2)], 2)}</td><td class="num">${fmt(sd, 2)}</td><td class="num">${fmt(ws[0], 1)} – ${fmt(ws[n - 1], 1)}</td>
-      <td class="num">${bom ? fmt(bom, 2) : "—"}</td><td class="num ${dev == null ? "" : dev > 0 ? "over" : "under"}">${dev == null ? "—" : (dev > 0 ? "+" : "") + fmt(dev) + "%"}</td><td class="num">${g.corr || ""}</td>`;
-    tb.appendChild(tr);
-  });
-  };
-  renderShifts();
-  $("#checks-items tbody").onclick = (e) => { const tr = e.target.closest("tr.run"); if (!tr) return; itemFilter = itemFilter === tr.dataset.item ? null : tr.dataset.item; $$("#checks-items tr.run").forEach(t => t.classList.toggle("selected", t.dataset.item === itemFilter)); renderShifts(); $("#checks-table").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+  const mean = w.reduce((a, b) => a + b, 0) / (w.length || 1), md = w.length ? w[Math.floor(w.length / 2)] : null;
+  $("#checks-stats").innerHTML = `<span>Paper readings <b>${fmt(w.length)}</b></span><span>Mean <b>${fmt(mean, 2)} g</b></span><span>Median <b>${fmt(md, 2)} g</b></span><span>Min <b>${fmt(w[0], 1)} g</b></span><span>Max <b>${fmt(w[w.length - 1], 1)} g</b></span>`;
+  // the shift window covering every gas weight, for metered gas and production
+  const ds = [...rows.map(r => r.check_date), ...enactGasRows(enactRows).map(k => k.date)].filter(Boolean).sort();
+  const shiftRows = ds.length ? await computeShiftRows(["C", "D"], ds[0], ds[ds.length - 1]) : [];
+  gwModel = gasWeightModel(rows, enactRows, shiftRows); renderGasWeight();
   const sel = $("#check-item"); if (sel) sel.innerHTML = `<option value="">— from production run —</option>` + items.filter(i => i.gas_blend !== false).map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}</option>`).join("");
   $("#checks-export").onclick = () => csv(rows, "gas_weight_checks.csv");
 }
@@ -427,6 +472,7 @@ function shiftWindow(dateStr, shift) {
   const s = new Date(y, m - 1, d, SHIFT_START[shift]); const e = new Date(s.getTime() + 8 * 3600e3);
   return [s.getTime(), e.getTime()];
 }
+const BASIS = { paperwork: ["Paperwork", "rdg"], Enact: ["Enact", "pcs"], "paper + Enact": ["Paper + Enact", "cans"], BOM: ["BOM", ""] };
 let dashRows = [], dashSort = { key: "date", dir: -1 }, lastEnact = null, lastReading = null;
 function renderDashTable() {
   const fItem = $("#f-item").value.trim().toLowerCase(), fShift = $("#f-shift").value, fWf = parseFloat($("#f-wf").value), fEff = parseFloat($("#f-eff").value);
@@ -447,7 +493,7 @@ function renderDashTable() {
     if (r.nonGasOnly) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">—</td><td class="num">—</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb)}</td><td colspan="6">non-gas-blend production only — ${r.totalLb == null ? "no meter data" : fmt(r.totalLb) + " lb of blend flowed with no gas item running"}</td>`; }
     else if (r.totalLb == null) { tr.classList.add("muted"); tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td><td colspan="7">no meter data for this shift</td>`; }
     else tr.innerHTML = `<td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${r.items}</td><td class="num">${fmt(r.cases)}</td><td class="num">${fmt(r.cans)}</td>
-      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${r.wastePct == null ? "—" : fmt(r.wastePct) + "%"}</td><td class="basis">${r.basis === "paperwork" ? `Paperwork <small>${r.paperN} rdg</small>` : r.basis === "Enact" ? `Enact <small>${r.paperN} pcs</small>` : r.basis === "BOM" ? "BOM" : "<span class='empty'>none</span>"}</td>`;
+      <td class="num">${fmt(r.totalLb)}</td><td class="num">${fmt(r.volPct, 1)}%</td><td class="num">${r.avgCpm == null ? "—" : fmt(r.avgCpm)}</td><td class="num">${r.eff == null ? "—" : fmt(r.eff) + "%"}</td><td class="num">${fmt(r.gPerCan, 1)}</td><td class="num waste">${r.wastePct == null ? "—" : fmt(r.wastePct) + "%"}</td><td class="basis">${!r.basis ? "<span class='empty'>none</span>" : r.basis === "BOM" ? "BOM" : `${BASIS[r.basis][0]} <small>${r.paperN} ${BASIS[r.basis][1]}</small>`}</td>`;
     tb.appendChild(tr);
     const det = document.createElement("tr"); det.className = "detail hidden";
     const itemsTable = `<table class="mini"><thead><tr><th>Item</th><th>Brand</th><th class="num">Cases</th><th class="num">Cans/case</th><th class="num">Cans</th><th class="num">N₂O ratio</th></tr></thead><tbody>` +
@@ -459,7 +505,7 @@ function renderDashTable() {
       <tr class="total"><td>Total</td><td class="num">${fmt(r.n2oScf + r.n2Scf)}</td><td class="num">${fmt(r.totalLb)}</td><td></td></tr></tbody></table>`;
     const wasteRow = (label, tgt, used) => tgt ? `<tr class="${used ? "used" : ""}"><td>${label}${used ? " <small>· used</small>" : ""}</td><td class="num">${fmt(tgt)}</td><td class="num">${r.totalLb == null ? "—" : fmt(r.totalLb - tgt)}</td><td class="num waste">${r.totalLb == null ? "—" : fmt((r.totalLb - tgt) / tgt * 100) + "%"}</td></tr>` : "";
     const wasteTable = (r.paperLb || r.bomLb) ? `<table class="mini"><thead><tr><th>Basis</th><th class="num">Target lb</th><th class="num">Over lb</th><th class="num">Waste %</th></tr></thead><tbody>` +
-      wasteRow(`${r.basis === "Enact" ? "Enact" : "Paperwork"} ${fmt(r.paperG, 2)} g <small>(${r.paperN} ${r.basis === "Enact" ? "pcs" : "rdg"})</small>`, r.paperLb, r.basis === "paperwork" || r.basis === "Enact") + wasteRow(`BOM${r.itemRows.length === 1 && r.itemRows[0].bomG ? " " + fmt(r.itemRows[0].bomG, 2) + " g" : ""}`, r.bomLb, r.basis === "BOM") + `</tbody></table>` : `<p class="hint">No paperwork for this shift and no BOM gas standard for its items, so waste isn't calculated.</p>`;
+      wasteRow(`${(BASIS[r.basis] || BASIS.paperwork)[0]} ${fmt(r.paperG, 2)} g <small>(${r.paperN} ${(BASIS[r.basis] || BASIS.paperwork)[1]})</small>`, r.paperLb, !!r.basis && r.basis !== "BOM") + wasteRow(`BOM${r.itemRows.length === 1 && r.itemRows[0].bomG ? " " + fmt(r.itemRows[0].bomG, 2) + " g" : ""}`, r.bomLb, r.basis === "BOM") + `</tbody></table>` : `<p class="hint">No paperwork for this shift and no BOM gas standard for its items, so waste isn't calculated.</p>`;
     const kv = (label, val) => `<div class="kv"><span>${label}</span><div>${val}</div></div>`;
     det.innerHTML = `<td colspan="13"><div class="run-detail">
       <div class="detail-tables">
@@ -537,13 +583,15 @@ async function computeShiftRows(lines, from, to) {
       return { code: r.item_code || "—", brand: it.brand || "", cases: r.cases, cpc: r.cans_per_case || 12, cans: n, ratio: it.n2o_ratio_vol, bomG: it.bom_gas_g_per_can };
     });
     const nonGasOnly = cans === 0 && (nonGasCans > 0 || g.runs.some(r => /non-gas/i.test(r.notes || "")));
-    const pw = paper[`${g.line}|${g.date}|${g.shift}`] || (enact[`${g.line}|${g.date}|${g.shift}`] && { ...enact[`${g.line}|${g.date}|${g.shift}`], src: "Enact" });
+    // measured gas weight for the shift: paper checks and Enact are the same measurement, so when both exist they are averaged, weighted by cans weighed
+    const pk = `${g.line}|${g.date}|${g.shift}`, pp = paper[pk], ee = enact[pk];
+    const pw = pp && ee ? { sum: pp.sum + ee.sum, n: pp.n + ee.n, src: "paper + Enact" } : pp ? { ...pp, src: "paperwork" } : ee ? { ...ee, src: "Enact" } : null;
     const paperG = pw ? pw.sum / pw.n : null, paperN = pw ? pw.n : 0, paperSrc = pw?.src || "paperwork";
     const paperLb = paperG != null ? cans * paperG / G_PER_LB : null;
     if (bomMissing) bomLb = 0;
     // target basis: paperwork for this line/date/shift if it exists, otherwise the items' BOM standard; never the 4.87 assumption
     const basis = paperLb != null ? paperSrc : bomLb ? "BOM" : null;
-    const targetLb = basis === "paperwork" ? paperLb : basis === "BOM" ? bomLb : 0;
+    const targetLb = basis === "BOM" ? bomLb : basis ? paperLb : 0;
     const cases = g.runs.filter(r => !itemRows.find(x => x.code === r.item_code)?.nonGas).reduce((x, r) => x + r.cases, 0);
     const hours = (eUse - s) / 3600e3;
     const fill = (fillerBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.cpm);
@@ -683,7 +731,7 @@ async function loadDashboard() {
     tooltip: { ...TIP, trigger: "axis", axisPointer: { type: "shadow", shadowStyle: { color: "rgba(212,241,255,.45)" } },
       formatter: (ps) => { const k = cats[ps[0].dataIndex]; const [d, sh] = k.split("|");
         return `<b>${new Date(d + "T12:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · shift ${sh}</b>` + lines.map(L => { const r = byKey[`${L}|${k}`]; if (!r) return "";
-          return `<div style="margin-top:6px">${dot(COL[L])}<b>${LINE_NAME[L]} ${pct(r.wastePct)}</b> <span style="color:${COL.ink2}">${r.basis === "paperwork" ? "vs paperwork" : r.basis === "Enact" ? "vs Enact" : "vs BOM"}</span><br><span style="color:${COL.ink2}">${esc(r.items)} · ${fmt(r.cases)} cases · ${fmt(r.gPerCan, 1)} g/can${r.avgCpm != null ? ` · ${fmt(r.avgCpm)} cpm` : ""}</span></div>`; }).join("") + `<div style="margin-top:6px;color:${COL.ink2};font-size:12px">Click to open in the table</div>`; } },
+          return `<div style="margin-top:6px">${dot(COL[L])}<b>${LINE_NAME[L]} ${pct(r.wastePct)}</b> <span style="color:${COL.ink2}">${r.basis && r.basis !== "BOM" ? "vs " + BASIS[r.basis][0].toLowerCase() : "vs BOM"}</span><br><span style="color:${COL.ink2}">${esc(r.items)} · ${fmt(r.cases)} cases · ${fmt(r.gPerCan, 1)} g/can${r.avgCpm != null ? ` · ${fmt(r.avgCpm)} cpm` : ""}</span></div>`; }).join("") + `<div style="margin-top:6px;color:${COL.ink2};font-size:12px">Click to open in the table</div>`; } },
     series: [...bars, ...cpm],
   }), { click: (p) => { const r = p.data?.r; if (r) openDashRow(r); } });
 
@@ -779,7 +827,7 @@ async function loadAnalysis() {
     const g = rows.filter(r => r.line === L); if (!g.length) return null;
     const T = g.reduce((a, r) => ({ lb: a.lb + r.totalLb, tgt: a.tgt + r.targetLb, bom: a.bom + r.bomLb, cans: a.cans + r.cans, cases: a.cases + r.cases, hrs: a.hrs + r.hours }), { lb: 0, tgt: 0, bom: 0, cans: 0, cases: 0, hrs: 0 });
     const f = g.filter(r => r.hours >= 7.5); const fit = fitLine(f.map(r => r.casesHr), f.map(r => r.lbHr)); const effs = g.map(r => r.eff).filter(x => x != null);
-    return { line: L, shifts: g.length, paperShifts: g.filter(r => r.basis === "paperwork").length, cases: T.cases, cans: T.cans, lb: T.lb, waste: (T.lb - T.tgt) / T.tgt * 100, wasteBom: T.bom ? (T.lb - T.bom) / T.bom * 100 : null, gcan: T.lb * G_PER_LB / T.cans, tgtG: T.tgt * G_PER_LB / T.cans, eff: effs.length ? effs.reduce((a, b) => a + b, 0) / effs.length : null, fit, medianW: med(g.map(r => r.wastePct)), best: Math.min(...g.map(r => r.wastePct)), worst: Math.max(...g.map(r => r.wastePct)) };
+    return { line: L, shifts: g.length, paperShifts: g.filter(r => r.basis && r.basis !== "BOM").length, cases: T.cases, cans: T.cans, lb: T.lb, waste: (T.lb - T.tgt) / T.tgt * 100, wasteBom: T.bom ? (T.lb - T.bom) / T.bom * 100 : null, gcan: T.lb * G_PER_LB / T.cans, tgtG: T.tgt * G_PER_LB / T.cans, eff: effs.length ? effs.reduce((a, b) => a + b, 0) / effs.length : null, fit, medianW: med(g.map(r => r.wastePct)), best: Math.min(...g.map(r => r.wastePct)), worst: Math.max(...g.map(r => r.wastePct)) };
   }).filter(Boolean);
   $("#an-lines").innerHTML = byLine.map(L => `<div class="kpi" data-line="${L.line}"><h3>${L.line} Line</h3><div class="big">${fmt(L.waste)}%<small>gas over target</small></div><dl>
       <dt>Gas per can</dt><dd>${fmt(L.gcan, 1)} g <small>vs ${fmt(L.tgtG, 2)} g target</small></dd>

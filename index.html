@@ -114,7 +114,7 @@
         <div class="faq-list">
           <details class="qa"><summary>Which shift does a reading belong to?</summary><div class="ans"><p>Shift 1 runs 07:00–15:00, shift 2 15:00–23:00 and shift 3 23:00–07:00 the next day. Gas for a shift is read off the totalizers at those boundaries. A gas weight check written before 07:00 counts toward the previous day's shift 3. A shift shows "no meter data" when the readings don't cover it.</p></div></details>
           <details class="qa"><summary>How does the meter's scf become pounds?</summary><div class="ans"><p>The blender reports standard cubic feet for each gas. One scf of N₂O weighs 0.116 lb and one scf of N₂ weighs 0.0739 lb. The blend ratio is by volume, so a blend set to 85% N₂O by volume is 89.9% N₂O by mass.</p></div></details>
-          <details class="qa"><summary>Where does each shift's target come from?</summary><div class="ans"><p>In order of preference: the average of that line, date and shift's paper gas weight checks; then Enact's operating gas weight for that shift (gas-blend items only); then the items' BOM gas per can. The table's Basis column says which one was used.</p></div></details>
+          <details class="qa"><summary>Where does each shift's target come from?</summary><div class="ans"><p>From the gas weights measured on the line that shift. The paper check and Enact's operating gas weight are the same measurement, so when a shift has both they are averaged, weighted by the cans each one weighed; when it has one, that one is used. With neither, the items' BOM gas per can is the target. The table's Basis column says which was used.</p></div></details>
           <details class="qa"><summary>What does waste % mean?</summary><div class="ans"><p>Waste % = (gas metered − target) ÷ target. Target = cans filled × target grams per can. 0% means the meter matches what went into the cans; 50% means half as much gas again went somewhere other than a can.</p></div></details>
           <details class="qa"><summary>How is efficiency worked out?</summary><div class="ans"><p>Cans produced ÷ the cans the filler could make at its setpoint over the shift window (C Line 300 cans a minute, D Line 250). Cases are converted to cans with each item's EQV, so a 6-pack case counts 6 cans.</p></div></details>
           <details class="qa"><summary>What counts as a gas event?</summary><div class="ans"><p>Times the blend system was open with no gas-blend production: startup before the first can (expected), downtime stops of 30 minutes or more, end of schedule including CIP, and changeovers to non-gas items. The last three are the opportunity, because closing the blend would have saved that gas outright.</p></div></details>
@@ -155,7 +155,7 @@
 
           <section class="an-sec reveal">
             <h2 id="an-sec-lines">Performance by line</h2>
-            <p class="lede">Gas metered against the target for every gas-blend shift in the period. The target for each shift is the paperwork average where gas weight checks exist, then Enact, then the BOM standard.</p>
+            <p class="lede">Gas metered against the target for every gas-blend shift in the period. The target for each shift is the measured gas weight (paper checks and Enact averaged when both exist), otherwise the BOM standard.</p>
             <div class="kpis" id="an-lines"></div>
           </section>
 
@@ -277,7 +277,7 @@
 
     <!-- ======================= CHECKS ======================= -->
     <section id="page-checks" class="page hidden">
-      <div class="page-head"><span class="eyebrow"><i></i>Data entry</span><h1>Line gas weight check</h1><p class="lede">Enter one row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before and after if you leave it blank.</p><div class="acts"><button type="button" id="checks-export" class="btn secondary small">Export CSV</button></div></div>
+      <div class="page-head"><span class="eyebrow"><i></i>Data entry</span><h1>On-line gas weight check</h1><p class="lede">Gas weights taken on the production line, from the paper check sheet and from Enact. Enter one row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before and after if you leave it blank.</p><div class="acts"><button type="button" id="checks-export" class="btn secondary small">Export CSV</button></div></div>
       <form id="check-form" class="entry">
         <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
         <label class="field"><span>Date</span><input class="input" type="date" name="check_date" required></label>
@@ -295,24 +295,40 @@
         <div class="form-actions"><button type="submit" class="btn">Save head</button></div>
       </form>
       <div class="stats" id="checks-stats"></div>
-      <h2>From Enact <small class="note" id="enact-status"></small></h2>
-      <p class="note">Operating gas weight per gasser and shift, published by Enact after each shift. Only parts on the gas-blend Items list are shown. When a shift has no paper check, its mean becomes the waste-factor target. "Day" rows are Enact's daily roll-up and catch checks from shifts whose own summary didn't arrive.</p>
-      <div class="tbl-wrap"><table id="enact-table" class="data compact">
-        <thead><tr><th>Date</th><th>Shift</th><th>Line · gasser</th><th>Part</th><th class="num">Subgroups</th><th class="num">Pieces</th><th class="num">Mean g</th><th class="num">SD</th><th class="num">OOS</th></tr></thead>
-        <tbody></tbody>
-      </table></div>
-      <h2>By item</h2>
-      <p class="lede">Every reading grouped by the item that was running (from the item column, or the production run logged for that line, date and shift). Click an item to see its readings by shift below.</p>
-      <div class="tbl-wrap"><table id="checks-items" class="data compact">
-        <thead><tr><th>Item</th><th>Brand</th><th>Line</th><th class="num">Readings</th><th class="num">Shifts</th><th class="num">Average g</th><th class="num">Median g</th><th class="num">Min g</th><th class="num">Max g</th><th class="num">Std dev</th><th class="num">BOM g/can</th><th class="num">vs BOM</th><th>Dates</th></tr></thead>
-        <tbody></tbody>
-      </table></div>
-      <h2>By shift <small id="checks-shift-filter" class="note"></small></h2>
-      <div class="tbl-wrap"><table id="checks-table" class="data compact">
-        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item(s) run</th><th>Gasser</th><th>Check times</th><th class="num">Readings</th><th class="num">Avg g</th><th class="num">Median g</th><th class="num">Std dev</th><th class="num">Range g</th><th class="num">BOM g/can</th><th class="num">vs BOM</th><th class="num">Corrected</th></tr></thead>
-        <tbody></tbody>
-      </table></div>
-      <p class="note">"vs BOM" is the measured average against the BOM gas standard for the item(s) run that shift: positive means cans are getting more gas than the standard. "Corrected" counts heads where the operator wrote a correction. Use Export CSV for every reading.</p>
+
+      <section class="an-sec" aria-labelledby="h-gw-cov">
+        <h2 id="h-gw-cov">Where the data overlaps</h2>
+        <p class="lede">Paper checks and Enact measure the same thing: grams of gas in a can. A waste factor needs a gas weight, metered gas and logged production for the same shift.</p>
+        <div class="card gw-cov" id="gw-cov"></div>
+        <div class="kpis gw-kpis" id="gw-kpis"></div>
+      </section>
+
+      <section class="an-sec" aria-labelledby="h-gw">
+        <div class="sec-head"><div><h2 id="h-gw">Every shift with a gas weight</h2><p class="lede">Paper and Enact side by side, against the BOM target and what the blender metered. The latest 10 shifts show first; click an Enact row to see each gasser.</p></div>
+          <div class="seg" id="gw-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on" aria-pressed="true">Both</button><button type="button" data-v="C" aria-pressed="false">C Line</button><button type="button" data-v="D" aria-pressed="false">D Line</button></div></div>
+        <p class="note" id="gw-filter"></p>
+        <div class="tbl-wrap"><table id="gw-table" class="data compact">
+          <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item</th><th>Source</th>
+            <th class="num grp">Paper g</th><th class="num">Enact g</th>
+            <th class="num grp">BOM (g) [target]</th><th class="num">Measured vs BOM</th>
+            <th class="num grp">Metered g / can</th><th class="num">Waste % vs measured</th><th class="num">Waste % vs BOM</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div class="more-row"><button type="button" class="btn secondary small" id="gw-more" hidden></button></div>
+        <p class="note">Measured = the average of the paper checks and Enact for that shift, weighted by cans weighed; when a shift has only one of them, that one. Waste % = (gas metered − cans × measured g) ÷ (cans × measured g). A paper check written before 07:00 counts toward the previous day's shift 3; Enact's shift 3 summary arrives at 07:30 and counts the same way.</p>
+      </section>
+
+      <section class="an-sec" aria-labelledby="h-gw-items">
+        <h2 id="h-gw-items">By item</h2>
+        <p class="lede">Click an item to show only its shifts in the table above.</p>
+        <div class="tbl-wrap"><table id="gw-items" class="data compact">
+          <thead><tr><th>Item</th><th>Brand</th><th>Source</th><th class="num">Shifts</th><th class="num grp">Paper g</th><th class="num">Enact g</th><th class="num grp">BOM (g) [target]</th><th class="num">Measured vs BOM</th><th class="num grp">Waste % vs measured</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <details class="tbl-toggle"><summary>Not counted</summary>
+          <div class="tbl-wrap"><table id="gw-ignored" class="data compact"><thead><tr><th>What</th><th>Why it's left out</th><th class="num">Rows</th></tr></thead><tbody></tbody></table></div>
+        </details>
+      </section>
     </section>
 
     <!-- ======================= ITEMS ======================= -->
