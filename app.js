@@ -7,7 +7,9 @@ let sb;
 try {
   if (typeof CONFIG === "undefined") throw new Error("config.js is missing or failed to load.");
   if (typeof supabase === "undefined") throw new Error("Supabase library did not load (check internet / ad blocker).");
-  sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  // sign-in lasts for this browser tab (sessionStorage), like the old password gate
+  const mem = {}, tabStore = { getItem: (k) => { try { return sessionStorage.getItem(k); } catch (e) { return mem[k] ?? null; } }, setItem: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) { mem[k] = v; } }, removeItem: (k) => { try { sessionStorage.removeItem(k); } catch (e) { delete mem[k]; } } };
+  sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { auth: { storage: tabStore, storageKey: "gbr-auth", persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
 } catch (err) {
   document.addEventListener("DOMContentLoaded", () => { $("#signin-error").textContent = err.message; });
 }
@@ -19,8 +21,8 @@ const D = { n2o: 0.116, n2: 0.0739 };            // lb per scf at 60F / 14.7 psi
 const DEFAULT_RATIO_VOL = 0.85;                   // N2O fraction by volume when item ratio is blank
 const DEFAULT_TARGET_G = 4.87;
 const FILLER_SETPOINT = { C: 300, D: 250 };            // cans per minute at full speed                    // g gas per can when item target is blank
-const GUEST_HASH = "84983c60f7daadc1cb8698621f802c0d9f9a3c3c295c810748fb048115c186ec";
-const PASSWORD_HASH = "b4b9c4c60e9dd10880a39f1825f1de018e23aea06e08b8d94aa336519d5fc088";
+// Supabase Auth accounts behind the one password box; the database only answers these signed-in roles
+const ACCOUNTS = [{ email: "admin@gas-blend-runs.app", role: "admin" }, { email: "guest@gas-blend-runs.app", role: "guest" }];
 const normCode = (c) => (c || "").trim().toUpperCase().replace(/^([A-Z]{2}\d+).*$/, "$1");   // AD28-T, AG45-WIP -> AD28, AG45
 let items = [];
 
@@ -100,8 +102,8 @@ function drawChart(key, sel, option, handlers = {}) {
 function resizeCharts() { Object.values(charts).forEach(c => c.inst && c.el.offsetParent && c.inst.resize()); }
 let _rz; window.addEventListener("resize", () => { clearTimeout(_rz); _rz = setTimeout(resizeCharts, 120); });
 
-/* ---------- password gate ---------- */
-async function sha256(s) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join(""); }
+/* ---------- sign in (Supabase Auth) ---------- */
+let currentRole = null;
 function showSignin() { $("#signin").classList.remove("hidden"); $("#app").classList.add("hidden"); }
 async function showApp() {
   $("#signin").classList.add("hidden"); $("#app").classList.remove("hidden");
@@ -110,24 +112,36 @@ async function showApp() {
 }
 window.addEventListener("scroll", () => document.body.classList.toggle("scrolled", window.scrollY > 10), { passive: true });
 const ADMIN_PAGES = ["runs", "readings", "checks"];
-function role() { if (PREVIEW) return "admin"; try { return sessionStorage.getItem("gaslog-role"); } catch (e) { return window.__role || null; } }
-function setRole(r) { try { r ? sessionStorage.setItem("gaslog-role", r) : sessionStorage.removeItem("gaslog-role"); } catch (e) { window.__role = r; } }
+function role() { return PREVIEW ? "admin" : currentRole; }
+const roleOf = (user) => user?.app_metadata?.role === "admin" ? "admin" : user?.app_metadata?.role === "guest" ? "guest" : null;
 function applyRole() { const guest = role() === "guest"; document.body.classList.toggle("guest", guest); $("#signout").textContent = guest ? "Sign out (guest)" : "Sign out"; }
 // when embedded (e.g. a SharePoint Embed web part), offer a link to open the site in its own tab
 const EMBEDDED = !PREVIEW && (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
 if (EMBEDDED) { const show = () => $("#open-full")?.classList.remove("hidden"); document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", show) : show(); }
 async function boot() {
   if (!sb) return;
-  if (role()) { applyRole(); showApp(); } else showSignin();
+  if (PREVIEW) { applyRole(); return showApp(); }
+  const { data } = await sb.auth.getSession();
+  currentRole = roleOf(data?.session?.user);
+  if (currentRole) { applyRole(); showApp(); } else showSignin();
 }
 $("#signin-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const hsh = await sha256($("#password").value);
-  if (hsh === PASSWORD_HASH) setRole("admin"); else if (hsh === GUEST_HASH) setRole("guest");
-  else { $("#signin-error").textContent = "Wrong password."; return; }
+  const pw = $("#password").value, btn = e.target.querySelector("button[type=submit]"), err = $("#signin-error");
+  err.textContent = ""; btn.disabled = true; btn.textContent = "Signing in…";
+  let user = null, netErr = null;
+  for (const a of ACCOUNTS) {
+    const { data, error } = await sb.auth.signInWithPassword({ email: a.email, password: pw });
+    if (!error && data?.user) { user = data.user; break; }
+    if (error && !/invalid login credentials/i.test(error.message)) netErr = error;
+  }
+  btn.disabled = false; btn.textContent = "Open";
+  if (!user) { err.textContent = netErr ? `Couldn't reach the sign-in service (${netErr.message}). Check the connection and try again.` : "Wrong password."; return; }
+  currentRole = roleOf(user);
+  if (!currentRole) { await sb.auth.signOut(); err.textContent = "This account has no access to the site."; return; }
   $("#password").value = ""; applyRole(); showApp();
 });
-$("#signout").addEventListener("click", () => { if (PREVIEW) return toast("Sign-out is off in the preview"); setRole(null); document.body.classList.remove("guest"); showSignin(); });
+$("#signout").addEventListener("click", async () => { if (PREVIEW) return toast("Sign-out is off in the preview"); await sb.auth.signOut(); currentRole = null; document.body.classList.remove("guest"); showSignin(); });
 
 /* ---------- navigation ---------- */
 const loaders = { analysis: loadAnalysis, dashboard: loadDashboard, runs: loadRuns, readings: loadReadings, checks: loadChecks, items: renderItems, convert: renderConvert };
@@ -152,9 +166,12 @@ $("#menuBtn").addEventListener("click", () => { const open = $("#siteNav").class
 $("#to-top").addEventListener("click", (e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); });
 
 /* ---------- items ---------- */
-async function loadItems() { items = await fetchAll("items", "code"); }
+// guests read items through a view without description, cans per case or lb per case
+async function loadItems() { items = await fetchAll(role() === "guest" ? "items_guest" : "items", "code"); }
 let itemSort = { key: "code", dir: 1 };
 function itemCalc(it) {
+  if (it.n2o_g_per_can !== undefined) { const o = it.n2o_g_per_can == null ? null : Number(it.n2o_g_per_can), n = it.n2_g_per_can == null ? null : Number(it.n2_g_per_can);
+    return { n2oG: o, n2G: n, totG: o == null && n == null ? null : (o || 0) + (n || 0), massR: it.bom_split_mass == null ? null : Number(it.bom_split_mass) }; }
   const c = it.cans_per_case || 12, o = Number(it.n2o_lb_per_case) || 0, n = Number(it.n2_lb_per_case) || 0;
   return { n2oG: it.n2o_lb_per_case != null ? o * G_PER_LB / c : null, n2G: it.n2_lb_per_case != null ? n * G_PER_LB / c : null, totG: (it.n2o_lb_per_case != null || it.n2_lb_per_case != null) ? (o + n) * G_PER_LB / c : null, massR: (o + n) > 0 ? o / (o + n) : null };
 }
