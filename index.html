@@ -317,7 +317,7 @@
 
     <!-- ======================= ITEMS ======================= -->
     <section id="page-items" class="page hidden">
-      <div class="page-head"><span class="eyebrow"><i></i>Reference</span><h1>Items</h1><p class="lede">Gas standards per item from the BOM (lb per case) and the same figures per can, which is what every calculation on the site uses. Ratio is N₂O by volume as the blender delivers it; the BOM's own N₂O / N₂ split is shown as a mass ratio for comparison.</p>
+      <div class="page-head"><span class="eyebrow"><i></i>Reference</span><h1>Items</h1><p class="lede"><span class="g-note">Gas standards per item from the BOM (lb per case) and the same figures per can, which is what every calculation on the site uses.</span><span class="g-only">Gas per can for each item, which is what every calculation on the site uses.</span> Ratio is N₂O by volume as the blender delivers it; the BOM's own N₂O / N₂ split is shown as a mass ratio for comparison.</p>
         <div class="acts">
           <label class="field"><span>Brand</span><select class="input" id="items-brand"><option value="">All brands</option></select></label>
           <button type="button" id="items-add" class="btn secondary small admin-only">Add item</button>
@@ -339,14 +339,14 @@
       </form>
       <div class="tbl-wrap"><table id="items-table" class="data compact">
         <thead><tr>
-          <th data-sort="code">Code</th><th data-sort="brand">Brand</th><th data-sort="description">Description</th><th class="num" data-sort="cans_per_case">Cans / case</th>
-          <th class="num grp" data-sort="n2o_lb_per_case">N₂O lb/case</th><th class="num" data-sort="n2_lb_per_case">N₂ lb/case</th>
+          <th data-sort="code">Code</th><th data-sort="brand">Brand</th><th class="g-hide" data-sort="description">Description</th><th class="num g-hide" data-sort="cans_per_case">Cans / case</th>
+          <th class="num grp g-hide" data-sort="n2o_lb_per_case">N₂O lb/case</th><th class="num g-hide" data-sort="n2_lb_per_case">N₂ lb/case</th>
           <th class="num grp" data-sort="n2oG">N₂O g/can</th><th class="num" data-sort="n2G">N₂ g/can</th><th class="num" data-sort="totG">Total g/can</th>
           <th class="num grp" data-sort="n2o_ratio_vol">Ratio (vol)</th><th class="num" data-sort="massR">BOM split (mass)</th><th></th>
         </tr></thead>
         <tbody></tbody>
       </table></div>
-      <p class="note">Per-can figures = lb/case × 453.592 ÷ cans per case. When "BOM split (mass)" matches the ratio column numerically, the BOM was written by mass while the blender runs by volume. Hover a code for its notes.</p>
+      <p class="note g-note">Per-can figures = lb/case × 453.592 ÷ cans per case. When "BOM split (mass)" matches the ratio column numerically, the BOM was written by mass while the blender runs by volume. Hover a code for its notes.</p>
     </section>
 
     <!-- ======================= CONVERSIONS ======================= -->

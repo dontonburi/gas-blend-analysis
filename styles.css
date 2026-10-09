@@ -436,6 +436,9 @@ table.mini td:first-child { white-space: normal; }
 /* ---------- guest (read-only) ---------- */
 body.guest .admin-only, body.guest #items-table td.actions button, body.guest #item-form { display: none !important; }
 body.guest #items-table td.actions { width: 0; padding: 0; }
+.g-only { display: none; }
+body.guest #items-table .g-hide, body.guest #page-items .g-note { display: none; }
+body.guest #page-items .g-only { display: inline; }
 
 /* ---------- preview banner (artifact only) ---------- */
 .pv-bar { position: relative; z-index: 41; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .3rem 1rem; padding: .5rem 1rem; background: var(--lime); color: var(--ink); font-size: .85rem; text-align: center; }
