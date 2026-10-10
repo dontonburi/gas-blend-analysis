@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Gas Blend Runs</title>
+<title>Gas Blend Scrap Factor Report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
   <form id="signin-form" class="signin-card">
     <svg class="signin-mark" aria-hidden="true"><use href="#mark"/></svg>
     <span class="eyebrow"><i></i>Alamance Foods</span>
-    <h1>Gas Blend Runs</h1>
+    <h1>Gas Blend Scrap Factor Report</h1>
     <p>Enter the password to continue. Colleagues can use the guest password for read-only access.</p>
     <label for="password">Password</label>
     <input class="input" type="password" id="password" autocomplete="off" required autofocus>
@@ -26,11 +26,12 @@
 </div>
 
 <div id="app" class="app hidden">
+  <div class="fresh" id="fresh" aria-label="Data freshness"><div class="fresh-in"><span id="fresh-pv"></span><div class="fresh-items mq-view" id="fresh-items"><div class="mq-track"><div class="fresh-set">Loading data…</div></div></div></div></div>
   <header class="site-header">
     <div class="hcont">
-      <a class="brand" href="#dashboard" aria-label="Gas Blend Runs, dashboard">
+      <a class="brand" href="#dashboard" aria-label="Gas Blend Scrap Factor Report, dashboard">
         <svg class="brand-mark" aria-hidden="true"><use href="#mark"/></svg>
-        <span class="brand-text"><span class="brand-eyebrow">Alamance Foods</span><span class="brand-name">Gas Blend Runs</span></span>
+        <span class="brand-text"><span class="brand-eyebrow">Alamance Foods</span><span class="brand-name">Gas Blend Scrap Factor Report</span></span>
       </a>
       <nav class="site-nav" id="siteNav" aria-label="Pages">
         <a href="#dashboard" data-page="dashboard" class="active">Dashboard</a>
@@ -52,14 +53,13 @@
     <!-- ======================= DASHBOARD ======================= -->
     <section id="page-dashboard" class="page">
       <div class="lp-hero">
-        <span class="eyebrow"><i></i>C Line and D Line · N₂O / N₂ blend</span>
-        <h1 class="lp-title"><span class="lw"><span style="--i:0">Gas</span></span> <span class="lw"><span style="--i:1">Blend</span></span> <span class="lw"><span style="--i:2">Runs</span></span></h1>
+        <div class="lp-tw"><h1 class="lp-title" id="hero-title"><span class="lw"><span style="--i:0">Gas</span></span> <span class="lw"><span style="--i:1">Blend</span></span> <span class="lw"><span style="--i:2">Scrap</span></span> <span class="lw"><span style="--i:3">Factor</span></span> <span class="lw"><span style="--i:4">Report</span></span></h1></div>
         <div class="lp-row">
-          <p class="lede">Blend gas metered against the gas that went into the cans, shift by shift.</p>
-          <div class="hero-actions"><a class="btn" href="#analysis">Open analysis</a><a class="btn secondary" href="#dash-shifts">Every shift</a></div>
+          <p class="lede">Calculating the scrap factor by comparing tank level data against production.</p>
+          <div class="hero-actions"><a class="btn" href="#analysis">Open analysis</a><a class="btn secondary admin-only" href="#checks" data-go="paperwork">Check line paperwork</a><a class="btn secondary admin-only" href="#runs" data-go="runs">View all production runs</a></div>
         </div>
       </div>
-      <nav class="ticker" id="ticker" aria-label="Live figures"><div class="tk-track"><ul class="tk-set"><li><span class="tk-item">Loading the latest figures…</span></li></ul></div></nav>
+      <nav class="ticker mq-view" id="ticker" aria-label="Waste by month"><div class="tk-track mq-track"><ul class="tk-set"><li><span class="tk-item">Loading the latest figures…</span></li></ul></div></nav>
 
       <section class="an-sec cards-sec" aria-label="Lines">
         <div class="tool-grid" id="line-cards">
@@ -70,30 +70,27 @@
 
       <div class="ctl" id="dash-ctl">
         <div class="seg" id="dash-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on" aria-pressed="true">Both</button><button type="button" data-v="C" aria-pressed="false">C Line</button><button type="button" data-v="D" aria-pressed="false">D Line</button></div>
-        <button type="button" class="ctl-more" id="dash-more" aria-expanded="false">Dates</button>
+        <button type="button" class="ctl-more" id="dash-more" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 7h11M5.5 2v3M10.5 2v3"/></svg>Dates</button>
         <div class="ctl-rest">
-          <label class="field"><span>From</span><input class="input" type="date" id="dash-from"></label>
-          <label class="field"><span>To</span><input class="input" type="date" id="dash-to"></label>
-          <button type="button" class="fchip" id="dash-cpm" aria-pressed="false">Filler speed</button>
-          <button type="button" id="dash-export" class="btn secondary small">Export CSV</button>
+          <div class="drange" role="group" aria-label="Dates"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 7h11M5.5 2v3M10.5 2v3"/></svg><input type="date" id="dash-from" aria-label="From"><span>to</span><input type="date" id="dash-to" aria-label="To"></div>
+          <label class="switch"><input type="checkbox" id="dash-cpm"><span class="sw" aria-hidden="true"></span>Show filler speed</label>
+          <button type="button" id="dash-export" class="linkbtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10"/></svg>Export CSV</button>
         </div>
       </div>
 
-      <section class="an-sec reveal" aria-labelledby="h-waste">
-        <h2 id="h-waste">Waste by shift</h2>
-        <p class="lede" id="dash-summary">Loading shifts…</p>
-        <div class="chart-wrap tall"><div class="chart" id="chart-waste"></div></div>
+      <section class="an-sec chart-sec" aria-label="Waste by shift">
+        <div class="chart-wrap tall loading"><div class="chart" id="chart-waste"></div></div>
         <p class="note">Each bar is one shift: gas metered over its target. Drag the slider (or hold Shift and scroll) to zoom; click a bar to open that shift in the table.</p>
       </section>
 
       <section class="an-sec reveal" id="dash-shifts" aria-labelledby="h-shifts">
         <h2 id="h-shifts">Every shift</h2>
         <div class="filters">
-          <label class="field"><span>Item</span><input class="input" type="text" id="f-item" placeholder="AD54 or Dunkin"></label>
-          <label class="field"><span>Shift</span><select class="input" id="f-shift"><option value="">Any</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
-          <label class="field"><span>Waste % at least</span><input class="input" type="number" id="f-wf" step="1" min="0" placeholder="any"></label>
-          <label class="field"><span>Efficiency at most</span><input class="input" type="number" id="f-eff" step="1" min="0" placeholder="any %"></label>
-          <button type="button" id="f-clear" class="btn secondary small">Clear</button>
+          <label class="pill-search"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><input type="search" id="f-item" placeholder="Item or brand, e.g. AD54 or Dunkin" aria-label="Item"></label>
+          <select class="pill-select" id="f-shift" aria-label="Shift"><option value="">Any shift</option><option value="1">Shift 1 · 07–15</option><option value="2">Shift 2 · 15–23</option><option value="3">Shift 3 · 23–07</option></select>
+          <label class="tbox"><span>Waste ≥</span><input type="number" id="f-wf" step="1" min="0" placeholder="any" aria-label="Waste % at least"><i>%</i></label>
+          <label class="tbox"><span>Efficiency ≤</span><input type="number" id="f-eff" step="1" min="0" placeholder="any" aria-label="Efficiency % at most"><i>%</i></label>
+          <button type="button" id="f-clear" class="linkbtn muted-link">Clear</button>
           <span id="f-count" class="note"></span>
         </div>
         <div class="tbl-wrap">
@@ -126,18 +123,17 @@
     <section id="page-analysis" class="page hidden">
       <div class="page-head band navy">
         <span class="eyebrow"><i></i>Analysis</span>
-        <h1>Where the gas goes</h1>
+        <h1>Scrap factor analysis</h1>
         <p class="lede" id="an-count">Loading…</p>
       </div>
       <div id="an-sentinel"></div>
       <div class="ctl an-head" id="an-ctl">
         <div class="seg" id="an-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on" aria-pressed="true">Both</button><button type="button" data-v="C" aria-pressed="false">C Line</button><button type="button" data-v="D" aria-pressed="false">D Line</button></div>
-        <button type="button" class="ctl-more" id="an-more" aria-expanded="false">Filters</button>
+        <button type="button" class="ctl-more" id="an-more" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M4.5 8h7M6.5 12h3"/></svg>Filters</button>
         <div class="ctl-rest">
-          <label class="field"><span>Item</span><select class="input" id="an-item"><option value="">All items</option></select></label>
-          <label class="field"><span>From</span><input class="input" type="date" id="an-from"></label>
-          <label class="field"><span>To</span><input class="input" type="date" id="an-to"></label>
-          <button type="button" id="an-export" class="btn secondary small">Export items CSV</button>
+          <label class="pill-search"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><input type="search" id="an-item" list="an-item-list" placeholder="Item: type or pick, e.g. AD54 or Dunkin" aria-label="Item" autocomplete="off"></label><datalist id="an-item-list"></datalist>
+          <div class="drange" role="group" aria-label="Dates"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 7h11M5.5 2v3M10.5 2v3"/></svg><input type="date" id="an-from" aria-label="From"><span>to</span><input type="date" id="an-to" aria-label="To"></div>
+          <button type="button" id="an-export" class="linkbtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10"/></svg>Export items CSV</button>
         </div>
       </div>
 
@@ -185,7 +181,7 @@
             <div class="chart-wrap"><div class="chart" id="an-chart-start"></div></div>
             <div class="kpis" id="an-start-kpis"></div>
             <div class="tbl-wrap"><table class="data compact" id="an-start-table">
-              <thead><tr><th>Run</th><th>Line</th><th>Items</th><th class="num">First shift waste</th><th class="num">Rest of run</th><th class="num">First-shift filler</th><th class="num">Rest of run</th><th class="num">Extra gas in first shift</th></tr></thead>
+              <thead><tr><th>Run start</th><th>Line</th><th>Items</th><th class="num grp">Waste, first shift</th><th class="num">Waste, rest of run</th><th class="num grp">Filler, first shift</th><th class="num">Filler, rest of run</th><th class="num grp">Extra gas, first shift</th></tr></thead>
               <tbody></tbody>
             </table></div>
           </section>
@@ -230,82 +226,70 @@
 
     <!-- ======================= RUNS ======================= -->
     <section id="page-runs" class="page hidden">
-      <div class="page-head"><span class="eyebrow"><i></i>Data entry</span><h1>Production runs</h1><div class="acts"><button type="button" id="runs-export" class="btn secondary small">Export CSV</button></div></div>
-      <form id="run-form" class="entry">
+      <div class="page-head wide"><span class="eyebrow"><i></i>Data entry</span><h1>Production runs</h1><p class="lede">Each dot is a day. It is filled when production was logged: C Line, D Line, or split in half when both lines ran. Every run in the months shown is listed below; click a day to see only that day.</p>
+        <div class="acts"><button type="button" id="runs-add" class="btn small admin-only">Add run</button><button type="button" id="runs-export" class="linkbtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10"/></svg>Export CSV</button></div></div>
+      <form id="run-form" class="entry compact hidden admin-only">
         <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
         <label class="field"><span>Date</span><input class="input" type="date" name="run_date" required></label>
         <label class="field"><span>Shift</span><select class="input" name="shift" required><option value="1">1 (07–15)</option><option value="2">2 (15–23)</option><option value="3">3 (23–07)</option></select></label>
-        <label class="field"><span>Item</span><select class="input" name="item_code" id="run-item"><option value="">— not recorded —</option></select></label>
+        <label class="field w2"><span>Item</span><select class="input" name="item_code" id="run-item"><option value="">— not recorded —</option></select></label>
         <label class="field"><span>Cases</span><input class="input" type="number" name="cases" min="0" required></label>
         <label class="field"><span>Cans / case</span><input class="input" type="number" name="cans_per_case" min="1" value="12" required></label>
-        <label class="field wide"><span>Notes</span><input class="input" type="text" name="notes"></label>
-        <div class="form-actions"><button type="submit" class="btn">Save run</button></div>
+        <label class="field w2"><span>Notes</span><input class="input" type="text" name="notes"></label>
+        <div class="form-actions"><button type="submit" class="btn small">Save run</button><button type="button" class="btn secondary small" id="run-cancel">Cancel</button></div>
       </form>
-      <div class="tbl-wrap"><table id="runs-table" class="data">
-        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item</th><th class="num">Cases</th><th class="num">Cans/case</th><th>Notes</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table></div>
+      <div class="card cal-card" id="cal-card">
+        <div class="cal-top">
+          <h3 class="cal-title" id="cal-title">Days with production</h3>
+          <div class="cal-nav">
+            <div class="seg" id="cal-range" role="group" aria-label="Months shown"><button type="button" data-v="3" class="on" aria-pressed="true">3 months</button><button type="button" data-v="6" aria-pressed="false">6 months</button><button type="button" data-v="12" aria-pressed="false">1 year</button></div>
+            <div class="cal-step"><button type="button" class="icon-btn" id="cal-prev" aria-label="Earlier months">&#8249;</button><button type="button" class="icon-btn" id="cal-next" aria-label="Later months">&#8250;</button></div>
+          </div>
+        </div>
+        <div class="cal-body"><div class="cal-scroll"><div class="cal-strip n3" id="cal" aria-label="Days with production, one dot per day"></div></div><div class="cal-sum" id="cal-sum"></div></div>
+      </div>
+      <div class="cal-day" id="cal-day" aria-live="polite"></div>
     </section>
 
     <!-- ======================= READINGS ======================= -->
     <section id="page-readings" class="page hidden">
-      <div class="page-head"><span class="eyebrow"><i></i>Data entry</span><h1>Meter readings</h1><p class="lede">Paste the meter export: timestamp, N₂O totalizer scf, N₂ totalizer scf. Tab, comma or semicolon separated; a header row is fine. Existing timestamps are skipped.</p><div class="acts"><button type="button" id="readings-export" class="btn secondary small">Export CSV</button></div></div>
-      <form id="readings-form" class="entry">
-        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <label class="field wide"><span>Column order in paste</span><select class="input" name="order"><option value="n2o_first">timestamp, N₂O, N₂ (C Line export)</option><option value="n2_first">timestamp, N₂, N₂O (D Line export)</option></select></label>
-        <textarea class="input" name="paste" rows="8" placeholder="2026-09-03 07:00:00	832658	358831"></textarea>
-        <div class="form-actions"><button type="submit" class="btn">Import readings</button><span id="readings-status" class="note"></span></div>
-      </form>
-      <h2>Filler cans per minute</h2>
-      <form id="filler-form" class="entry">
-        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <textarea class="input" name="paste" rows="4" placeholder="timestamp, cans per minute   (for D Line paste D1 and D2 as two columns; they are summed)"></textarea>
-        <div class="form-actions"><button type="submit" class="btn">Import filler readings</button></div>
-      </form>
-      <h2>Filler current downtime (minutes)</h2>
-      <form id="downtime-form" class="entry">
-        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <textarea class="input" name="paste" rows="4" placeholder="timestamp, current downtime mins   (for D Line paste D1 and D2; the line counts as down only when both are)"></textarea>
-        <div class="form-actions"><button type="submit" class="btn">Import downtime readings</button></div>
-      </form>
+      <div class="page-head"><span class="eyebrow"><i></i>Data</span><h1>Meter readings</h1><p class="lede">Gas totalizer, filler speed and filler downtime readings. Pick a line and a date range to see each shift's metered gas, or export the readings.</p></div>
+      <div class="ctl exp-bar" id="rd-ctl">
+        <div class="seg" id="rd-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on" aria-pressed="true">Both</button><button type="button" data-v="C" aria-pressed="false">C Line</button><button type="button" data-v="D" aria-pressed="false">D Line</button></div>
+        <div class="drange" role="group" aria-label="Dates"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 7h11M5.5 2v3M10.5 2v3"/></svg><input type="date" id="rd-from" aria-label="From"><span>to</span><input type="date" id="rd-to" aria-label="To"></div>
+        <select class="pill-select" id="rd-what" aria-label="What to export"><option value="gas">Gas meter readings</option><option value="filler">Filler cans per minute</option><option value="down">Filler downtime</option><option value="shift">By-shift totals (table below)</option></select>
+        <button type="button" class="linkbtn" id="rd-export"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10"/></svg>Export CSV</button>
+        <span class="note" id="rd-count"></span>
+      </div>
       <h2>By shift</h2>
       <div class="tbl-wrap"><table id="readings-table" class="data">
-        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Coverage</th><th class="num">Points</th><th class="num">N₂O scf</th><th class="num">N₂ scf</th><th class="num">N₂O lb</th><th class="num">N₂ lb</th><th>Ratio (by volume)</th></tr></thead>
+        <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Coverage</th><th class="num" title="How many meter totalizer readings were logged during the shift">Readings</th><th class="num">N₂O scf</th><th class="num">N₂ scf</th><th class="num">N₂O lb</th><th class="num">N₂ lb</th><th>Ratio (by volume)</th></tr></thead>
         <tbody></tbody>
       </table></div>
+      <p class="note">Readings: how many meter totalizer readings were logged during the shift. Coverage: the first and last of those readings; "partial" means they don't span the whole 8-hour shift, so that shift's gas is measured over the shorter window.</p>
     </section>
 
     <!-- ======================= CHECKS ======================= -->
     <section id="page-checks" class="page hidden">
-      <div class="page-head"><span class="eyebrow"><i></i>Data entry</span><h1>On-line gas weight check</h1><p class="lede">Gas weights taken on the production line, from the paper check sheet and from Enact. Enter one row per head from the paper Aerosol Gas Weight Check form. Weight is filled in from before and after if you leave it blank.</p><div class="acts"><button type="button" id="checks-export" class="btn secondary small">Export CSV</button></div></div>
-      <form id="check-form" class="entry">
-        <label class="field"><span>Line</span><select class="input" name="line" required><option value="C">C</option><option value="D">D</option></select></label>
-        <label class="field"><span>Date</span><input class="input" type="date" name="check_date" required></label>
-        <label class="field"><span>Gasser</span><input class="input" type="number" name="gasser" min="1" max="9" required></label>
-        <label class="field"><span>Time</span><input class="input" type="text" name="check_time" placeholder="07:20"></label>
-        <label class="field"><span>Initials</span><input class="input" type="text" name="initials"></label>
-        <label class="field"><span>Operator</span><input class="input" type="text" name="operator"></label>
-        <label class="field"><span>Item</span><select class="input" name="item_code" id="check-item"><option value="">— from production run —</option></select></label>
-        <label class="field"><span>Can size</span><input class="input" type="text" name="can_size" value="18 oz"></label>
-        <label class="field"><span>Head</span><input class="input" type="number" name="head" min="1" max="18" required></label>
-        <label class="field"><span>Before g</span><input class="input" type="number" step="0.1" name="before_g"></label>
-        <label class="field"><span>After g</span><input class="input" type="number" step="0.1" name="after_g"></label>
-        <label class="field"><span>Weight g</span><input class="input" type="number" step="0.1" name="weight_g"></label>
-        <label class="field"><span>Correction g</span><input class="input" type="number" step="0.1" name="correction_g"></label>
-        <div class="form-actions"><button type="submit" class="btn">Save head</button></div>
-      </form>
-      <div class="stats" id="checks-stats"></div>
-
-      <section class="an-sec" aria-labelledby="h-gw-cov">
-        <h2 id="h-gw-cov">Where the data overlaps</h2>
-        <p class="lede">Paper checks and Enact measure the same thing: grams of gas in a can. A waste factor needs a gas weight, metered gas and logged production for the same shift.</p>
-        <div class="card gw-cov" id="gw-cov"></div>
-        <div class="kpis gw-kpis" id="gw-kpis"></div>
-      </section>
+      <div class="page-head wide"><span class="eyebrow"><i></i>Data</span><h1>On-line gas weight check</h1><p class="lede">Gas weights taken on the production line, from the paper check sheet and from Enact. The bar below filters the whole page by line, date and item; the paperwork itself is listed at the bottom.</p><div class="acts"><button type="button" id="checks-export" class="linkbtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10"/></svg>Export CSV</button></div></div>
+      <div class="ctl dock pw-ctl" id="pw" aria-label="Filter this page">
+        <div class="seg" id="pw-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on" aria-pressed="true">Both</button><button type="button" data-v="C" aria-pressed="false">C Line</button><button type="button" data-v="D" aria-pressed="false">D Line</button></div>
+        <button type="button" class="ctl-more" id="pw-more" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M4.5 8h7M6.5 12h3"/></svg>Filters</button>
+        <form id="check-form" class="ctl-rest pw-form" autocomplete="off">
+          <div class="drange one"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 7h11M5.5 2v3M10.5 2v3"/></svg><input type="date" name="check_date" aria-label="Date"></div>
+          <label class="pill-search"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><input type="search" name="item_code" list="item-list" placeholder="Item: type or pick, e.g. AD54 or Dunkin" aria-label="Item"></label>
+          <button type="button" class="linkbtn" id="pw-toggle" aria-expanded="false" aria-controls="pw-secondary">More filters</button>
+          <div class="pw-secondary" id="pw-secondary">
+            <select class="pill-select" name="f_shift" aria-label="Time (shift)"><option value="">Any shift</option><option value="1">Shift 1 · 07–15</option><option value="2">Shift 2 · 15–23</option><option value="3">Shift 3 · 23–07</option></select>
+            <select class="pill-select" name="f_gasser" aria-label="Gasser"><option value="">Any gasser</option></select>
+          </div>
+          <button type="button" class="linkbtn muted-link" id="pw-clear">Clear</button>
+        </form>
+        <datalist id="item-list"></datalist>
+      </div>
 
       <section class="an-sec" aria-labelledby="h-gw">
-        <div class="sec-head"><div><h2 id="h-gw">Every shift with a gas weight</h2><p class="lede">Paper and Enact side by side, against the BOM target and what the blender metered. The latest 10 shifts show first; click an Enact row to see each gasser.</p></div>
-          <div class="seg" id="gw-line" role="group" aria-label="Line"><button type="button" data-v="ALL" class="on" aria-pressed="true">Both</button><button type="button" data-v="C" aria-pressed="false">C Line</button><button type="button" data-v="D" aria-pressed="false">D Line</button></div></div>
+        <div class="sec-head"><div><h2 id="h-gw">Every shift with a gas weight</h2><p class="lede">Paper and Enact side by side, against the BOM target and what the blender metered. The latest 10 shifts show first; click an Enact row to see each gasser.</p></div></div>
         <p class="note" id="gw-filter"></p>
         <div class="tbl-wrap"><table id="gw-table" class="data compact">
           <thead><tr><th>Line</th><th>Date</th><th>Shift</th><th>Item</th><th>Source</th>
@@ -320,7 +304,7 @@
 
       <section class="an-sec" aria-labelledby="h-gw-items">
         <h2 id="h-gw-items">By item</h2>
-        <p class="lede">Click an item to show only its shifts in the table above.</p>
+        <p class="lede">Click an item to filter the whole page to it.</p>
         <div class="tbl-wrap"><table id="gw-items" class="data compact">
           <thead><tr><th>Item</th><th>Brand</th><th>Source</th><th class="num">Shifts</th><th class="num grp">Paper g</th><th class="num">Enact g</th><th class="num grp">BOM (g) [target]</th><th class="num">Measured vs BOM</th><th class="num grp">Waste % vs measured</th></tr></thead>
           <tbody></tbody>
@@ -329,15 +313,25 @@
           <div class="tbl-wrap"><table id="gw-ignored" class="data compact"><thead><tr><th>What</th><th>Why it's left out</th><th class="num">Rows</th></tr></thead><tbody></tbody></table></div>
         </details>
       </section>
+
+      <section class="an-sec pw-sec" id="paperwork" aria-label="Paperwork">
+        <section class="an-sec find-sec" aria-labelledby="pw-h">
+          <div class="sec-head"><div><h2 id="pw-h">Latest paperwork</h2><p class="lede" id="pw-sum"></p></div></div>
+          <div class="tbl-wrap"><table id="pw-table" class="data compact">
+            <thead><tr><th>Date</th><th>Shift</th><th>Time</th><th>Line</th><th class="num">Gasser</th><th class="num">Head</th><th>Item</th><th class="num">Weight g</th><th class="num">Correction g</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="more-row"><button type="button" class="btn secondary small" id="pw-more-rows" hidden></button></div>
+        </section>
+      </section>
     </section>
 
     <!-- ======================= ITEMS ======================= -->
     <section id="page-items" class="page hidden">
-      <div class="page-head"><span class="eyebrow"><i></i>Reference</span><h1>Items</h1><p class="lede"><span class="g-note">Gas standards per item from the BOM (lb per case) and the same figures per can, which is what every calculation on the site uses.</span><span class="g-only">Gas per can for each item, which is what every calculation on the site uses.</span> Ratio is N₂O by volume as the blender delivers it; the BOM's own N₂O / N₂ split is shown as a mass ratio for comparison.</p>
+      <div class="page-head wide"><span class="eyebrow"><i></i>Reference</span><h1>Items</h1><p class="lede"><span class="g-note">Gas standards per item from the BOM (lb per case) and the same figures per can, which is what every calculation on the site uses.</span><span class="g-only">Gas per can for each item, which is what every calculation on the site uses.</span> Ratio is N₂O by volume as the blender delivers it; the BOM's own N₂O / N₂ split is shown as a mass ratio for comparison.</p>
         <div class="acts">
-          <label class="field"><span>Brand</span><select class="input" id="items-brand"><option value="">All brands</option></select></label>
-          <button type="button" id="items-add" class="btn secondary small admin-only">Add item</button>
-          <button type="button" id="items-export" class="btn secondary small">Export CSV</button>
+          <label class="pill-search items-q"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg><input type="search" id="items-brand" list="items-brand-list" placeholder="Brand: type or pick, or search an item" aria-label="Brand" autocomplete="off"></label><datalist id="items-brand-list"></datalist>
+          <button type="button" id="items-export" class="linkbtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10"/></svg>Export CSV</button>
         </div>
       </div>
       <form id="item-form" class="entry hidden">
@@ -355,7 +349,7 @@
       </form>
       <div class="tbl-wrap"><table id="items-table" class="data compact">
         <thead><tr>
-          <th data-sort="code">Code</th><th data-sort="brand">Brand</th><th class="g-hide" data-sort="description">Description</th><th class="num g-hide" data-sort="cans_per_case">Cans / case</th>
+          <th data-sort="code">Item</th><th data-sort="brand">Brand</th><th class="num g-hide" data-sort="cans_per_case">Cans / case</th>
           <th class="num grp g-hide" data-sort="n2o_lb_per_case">N₂O lb/case</th><th class="num g-hide" data-sort="n2_lb_per_case">N₂ lb/case</th>
           <th class="num grp" data-sort="n2oG">N₂O g/can</th><th class="num" data-sort="n2G">N₂ g/can</th><th class="num" data-sort="totG">Total g/can</th>
           <th class="num grp" data-sort="n2o_ratio_vol">Ratio (vol)</th><th class="num" data-sort="massR">BOM split (mass)</th><th></th>
@@ -367,9 +361,9 @@
 
     <!-- ======================= CONVERSIONS ======================= -->
     <section id="page-convert" class="page hidden">
-      <div class="page-head"><span class="eyebrow"><i></i>Tools</span><h1>Conversions</h1></div>
+      <div class="page-head"><span class="eyebrow"><i></i>Tools</span><h1>Gas blend setting calculator</h1></div>
 
-      <div class="split">
+      <div class="split conv-a">
         <div class="split-card">
           <p class="eyebrow"><i></i>scf to weight</p>
           <h2>What does the meter's number weigh?</h2>
@@ -388,6 +382,7 @@
         </div>
       </div>
 
+      <div class="conv-band">
       <div class="split">
         <div class="split-card">
           <p class="eyebrow"><i></i>Fill weight to BOM</p>
@@ -406,6 +401,7 @@
           <div id="bom-out"></div>
         </div>
       </div>
+      </div>
 
       <h2>Reference</h2>
       <div class="tbl-wrap"><table class="data compact facts">
@@ -423,7 +419,7 @@
   <footer class="site-foot">
     <div class="wrap">
       <div class="foot-act">
-        <div class="fb"><svg class="foot-mark" aria-hidden="true"><use href="#mark"/></svg><b>Gas Blend Runs</b><span>Meter totalizers, filler OPC, paper checks and Enact KPI, joined by shift.</span></div>
+        <div class="fb"><svg class="foot-mark" aria-hidden="true"><use href="#mark"/></svg><b>Gas Blend Scrap Factor Report</b><span>Meter totalizers, filler OPC, paper checks and Enact KPI, joined by shift.</span></div>
         <a class="btn secondary small to-top" href="#main" id="to-top">Back to top ↑</a>
       </div>
       <div class="foot-meta"><span>Alamance Foods · internal reference</span><span>Designed by Don Sang Chin</span></div>

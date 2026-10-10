@@ -1,15 +1,16 @@
-/* Gas Blend Runs: app logic. Talks directly to Supabase; charts are Apache ECharts; no build step. */
+/* Gas Blend Scrap Factor Report: app logic. Talks directly to Supabase; charts are Apache ECharts; no build step. */
 
 const $ = (s) => document.querySelector(s);
 const PREVIEW = !!window.GBR_PREVIEW;                 // set only by the design-preview artifact
 document.documentElement.classList.add("js");
+if (PREVIEW) document.documentElement.classList.add("pv");
 let sb;
 try {
   if (typeof CONFIG === "undefined") throw new Error("config.js is missing or failed to load.");
   if (typeof supabase === "undefined") throw new Error("Supabase library did not load (check internet / ad blocker).");
-  // sign-in lasts for this browser tab (sessionStorage), like the old password gate
-  const mem = {}, tabStore = { getItem: (k) => { try { return sessionStorage.getItem(k); } catch (e) { return mem[k] ?? null; } }, setItem: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) { mem[k] = v; } }, removeItem: (k) => { try { sessionStorage.removeItem(k); } catch (e) { delete mem[k]; } } };
-  sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { auth: { storage: tabStore, storageKey: "gbr-auth", persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
+  // the sign-in is kept in this browser (localStorage): admin stays signed in; guests are signed out after 2 minutes idle
+  const mem = {}, store = { getItem: (k) => { try { return localStorage.getItem(k); } catch (e) { return mem[k] ?? null; } }, setItem: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { mem[k] = v; } }, removeItem: (k) => { try { localStorage.removeItem(k); } catch (e) { delete mem[k]; } } };
+  sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { auth: { storage: store, storageKey: "gbr-auth", persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
 } catch (err) {
   document.addEventListener("DOMContentLoaded", () => { $("#signin-error").textContent = err.message; });
 }
@@ -47,15 +48,32 @@ function csv(rows, filename) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" })); a.download = filename; a.click();
 }
+// a second sort key so pages never overlap or skip rows that share a timestamp or date
+const TIE = { gas_readings: "line", filler_readings: "line", filler_downtime: "line", gas_weight_checks: "id", production_runs: "id", enact_kpi: "id", gas_events: "id" };
+const COLS = { gas_readings: "line,ts,n2o_scf,n2_scf" };
 async function fetchAll(table, order, asc = true) {
-  const out = []; let from = 0;
-  while (true) {
-    const { data, error } = await sb.from(table).select("*").order(order, { ascending: asc }).range(from, from + 999);
-    if (error) { toast(error.message, true); break; }
-    out.push(...data); if (data.length < 1000) break; from += 1000;
+  const page = (from, count) => { let q = sb.from(table).select(COLS[table] || "*", count ? { count: "exact" } : undefined).order(order, { ascending: asc }); if (TIE[table]) q = q.order(TIE[table], { ascending: true }); return q.range(from, from + 999); };
+  const first = await page(0, true);
+  if (first.error) { toast(first.error.message, true); return []; }
+  const out = [...(first.data || [])];
+  if (out.length < 1000) return out;
+  if (first.count != null) {   // the row count is known: fetch the remaining pages at the same time
+    const rest = []; for (let f = 1000; f < first.count; f += 1000) rest.push(page(f));
+    for (const r of await Promise.all(rest)) { if (r.error) { toast(r.error.message, true); break; } out.push(...r.data); }
+    return out;
   }
+  for (let from = 1000; ; from += 1000) { const { data, error } = await page(from); if (error) { toast(error.message, true); break; } out.push(...data); if (data.length < 1000) break; }
   return out;
 }
+// each table is fetched once and shared by every page; Refresh (or a save) drops the cache
+const ORDER = { production_runs: "run_date", gas_readings: "ts", filler_readings: "ts", filler_downtime: "ts", gas_weight_checks: "check_date", enact_kpi: "summary_date", gas_events: "start_ts" };
+const tableCache = {}; let shiftMemo = {}, pulledAt = null;
+function getTable(t) {
+  if (!tableCache[t]) tableCache[t] = fetchAll(t, ORDER[t]).then(rows => { pulledAt = new Date(); return rows; }).catch(() => { delete tableCache[t]; return []; });
+  return tableCache[t];
+}
+function invalidate(...tables) { (tables.length ? tables : Object.keys(tableCache)).forEach(t => delete tableCache[t]); shiftMemo = {}; }
+async function firstRunDate() { const runs = await getTable("production_runs"); return runs.reduce((m, r) => !m || r.run_date < m ? r.run_date : m, null); }
 function localDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 const shortDate = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -108,13 +126,60 @@ function showSignin() { $("#signin").classList.remove("hidden"); $("#app").class
 async function showApp() {
   $("#signin").classList.add("hidden"); $("#app").classList.remove("hidden");
   await loadItems();
+  renderFresh();
   navigate(location.hash.replace("#", "") || "dashboard");
 }
+// freshness strip above the header: when each source last had data, and when this page pulled it
+const fmtDay = (v) => { if (!v) return "—"; const x = v instanceof Date ? v : new Date(String(v).length === 10 ? v + "T12:00:00" : v); return `${x.toLocaleDateString("en-US", { month: "short" })}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()}`; };
+const fmtClock = (d) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+async function renderFresh() {
+  const [enact, readings, runs, checks] = await Promise.all(["enact_kpi", "gas_readings", "production_runs", "gas_weight_checks"].map(getTable));
+  const maxOf = (arr, k) => arr.reduce((m, r) => r[k] && String(r[k]) > m ? String(r[k]) : m, "");
+  const pulled = PREVIEW && window.GBR_SNAPSHOT_AT ? new Date(window.GBR_SNAPSHOT_AT) : (pulledAt || new Date());
+  const parts = [["Enact", fmtDay(maxOf(enact, "summary_date"))], ["Paper check", fmtDay(maxOf(checks, "check_date"))], ["Meter", fmtDay(maxOf(readings, "ts"))], ["Production run", fmtDay(maxOf(runs, "run_date"))]];
+  $("#fresh-pv").innerHTML = PREVIEW ? `<span class="fresh-pv" title="Design preview: a snapshot of the data, saving is off">Preview</span>` : "";
+  $("#fresh-items .mq-track").innerHTML = `<div class="fresh-set"><span class="fk">Last collected data</span>` + parts.map(([k, v]) => `<span class="fi"><i>${k}</i><b>${v}</b></span>`).join("")
+    + `<span class="fi fi-pull"><i>${PREVIEW ? "Snapshot" : "Pulled"}</i><b>${fmtDay(pulled)} ${fmtClock(pulled)}</b></span></div>`;
+  marquee($("#fresh-items"), 38);
+}
+// a ticker that never runs out: the first set is repeated until it is wider than the strip, then copied once so the loop is seamless
+function marquee(view, speed = 50) {
+  const track = view && view.querySelector(".mq-track"), base = track && track.firstElementChild; if (!base || !view.offsetParent) return;
+  while (track.children.length > 1) track.lastElementChild.remove();
+  base.querySelectorAll("[data-rep]").forEach(n => n.remove());
+  const quiet = (n) => { n.setAttribute("aria-hidden", "true"); if (n.matches("a,button")) n.tabIndex = -1; n.querySelectorAll("a,button").forEach(x => x.tabIndex = -1); return n; };
+  const unit = [...base.children];
+  for (let i = 0; i < 12 && base.scrollWidth < view.clientWidth + 60; i++) unit.forEach(n => { const c = quiet(n.cloneNode(true)); c.dataset.rep = "1"; base.appendChild(c); });
+  track.appendChild(quiet(base.cloneNode(true)));
+  track.style.setProperty("--mq-dur", `${Math.max(14, Math.round(base.scrollWidth / speed))}s`);
+}
+let _mq; window.addEventListener("resize", () => { clearTimeout(_mq); _mq = setTimeout(() => { marquee($("#fresh-items"), 38); if (currentPage === "dashboard") marquee($("#ticker"), 55); }, 200); });
+// data pulls itself: when the page comes back into view after 10 minutes, and every 10 minutes while it stays open
+const AUTO_PULL_MS = 10 * 60e3; let autoPulling = false;
+async function autoPull() {
+  if (PREVIEW || autoPulling || document.hidden || !currentRole || !pulledAt || Date.now() - pulledAt.getTime() < AUTO_PULL_MS) return;
+  autoPulling = true; try { invalidate(); await loadItems(); await renderFresh(); if (currentPage) await loaders[currentPage](); } finally { autoPulling = false; }
+}
+document.addEventListener("visibilitychange", autoPull); setInterval(autoPull, 60e3);
 window.addEventListener("scroll", () => document.body.classList.toggle("scrolled", window.scrollY > 10), { passive: true });
 const ADMIN_PAGES = ["runs", "readings", "checks"];
 function role() { return PREVIEW ? "admin" : currentRole; }
+function canEdit() { if (role() === "admin") return true; toast("Guests can view the data but can't add, change or delete it.", true); return false; }
 const roleOf = (user) => user?.app_metadata?.role === "admin" ? "admin" : user?.app_metadata?.role === "guest" ? "guest" : null;
-function applyRole() { const guest = role() === "guest"; document.body.classList.toggle("guest", guest); $("#signout").textContent = guest ? "Sign out (guest)" : "Sign out"; }
+function applyRole() { const guest = role() === "guest"; document.body.classList.toggle("guest", guest); $("#signout").textContent = guest ? "Sign out (guest)" : "Sign out"; if (guest && !PREVIEW) startGuestIdle(); else stopGuestIdle(); }
+// guests are signed out after 2 minutes without activity (shared across tabs); admin stays signed in
+const GUEST_IDLE_MS = 2 * 60e3, LAST_KEY = "gbr-last-active", ACTIVITY = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart", "scroll"];
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+let idleTimer = null, lastTouch = 0;
+function touchActivity() { const now = Date.now(); if (now - lastTouch > 4000) { lastTouch = now; lsSet(LAST_KEY, String(now)); } }
+function guestIdleFor() { return Date.now() - (Number(lsGet(LAST_KEY)) || lastTouch || Date.now()); }
+function checkIdle() { if (currentRole === "guest" && guestIdleFor() >= GUEST_IDLE_MS) signOut("Signed out after 2 minutes without activity."); }
+function startGuestIdle() { if (idleTimer) return; lastTouch = 0; touchActivity(); ACTIVITY.forEach(ev => window.addEventListener(ev, touchActivity, { passive: true })); document.addEventListener("visibilitychange", checkIdle); idleTimer = setInterval(checkIdle, 5000); }
+function stopGuestIdle() { if (!idleTimer) return; clearInterval(idleTimer); idleTimer = null; ACTIVITY.forEach(ev => window.removeEventListener(ev, touchActivity)); document.removeEventListener("visibilitychange", checkIdle); }
+async function signOut(msg) {
+  stopGuestIdle(); await sb.auth.signOut(); currentRole = null; document.body.classList.remove("guest"); invalidate(); showSignin();
+  const err = $("#signin-error"); err.textContent = msg || ""; err.classList.toggle("info", !!msg);
+}
 // when embedded (e.g. a SharePoint Embed web part), offer a link to open the site in its own tab
 const EMBEDDED = !PREVIEW && (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
 if (EMBEDDED) { const show = () => $("#open-full")?.classList.remove("hidden"); document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", show) : show(); }
@@ -123,12 +188,14 @@ async function boot() {
   if (PREVIEW) { applyRole(); return showApp(); }
   const { data } = await sb.auth.getSession();
   currentRole = roleOf(data?.session?.user);
+  // a guest who left the site idle for 2 minutes comes back to the sign-in
+  if (currentRole === "guest" && guestIdleFor() >= GUEST_IDLE_MS) return signOut("Signed out after 2 minutes without activity.");
   if (currentRole) { applyRole(); showApp(); } else showSignin();
 }
 $("#signin-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const pw = $("#password").value, btn = e.target.querySelector("button[type=submit]"), err = $("#signin-error");
-  err.textContent = ""; btn.disabled = true; btn.textContent = "Signing in…";
+  err.textContent = ""; err.classList.remove("info"); btn.disabled = true; btn.textContent = "Signing in…";
   let user = null, netErr = null;
   for (const a of ACCOUNTS) {
     const { data, error } = await sb.auth.signInWithPassword({ email: a.email, password: pw });
@@ -139,9 +206,9 @@ $("#signin-form").addEventListener("submit", async (e) => {
   if (!user) { err.textContent = netErr ? `Couldn't reach the sign-in service (${netErr.message}). Check the connection and try again.` : "Wrong password."; return; }
   currentRole = roleOf(user);
   if (!currentRole) { await sb.auth.signOut(); err.textContent = "This account has no access to the site."; return; }
-  $("#password").value = ""; applyRole(); showApp();
+  $("#password").value = ""; lsSet(LAST_KEY, String(Date.now())); applyRole(); showApp();
 });
-$("#signout").addEventListener("click", async () => { if (PREVIEW) return toast("Sign-out is off in the preview"); await sb.auth.signOut(); currentRole = null; document.body.classList.remove("guest"); showSignin(); });
+$("#signout").addEventListener("click", () => { if (PREVIEW) return toast("Sign-out is off in the preview"); signOut(); });
 
 /* ---------- navigation ---------- */
 const loaders = { analysis: loadAnalysis, dashboard: loadDashboard, runs: loadRuns, readings: loadReadings, checks: loadChecks, items: renderItems, convert: renderConvert };
@@ -157,17 +224,30 @@ function navigate(page) {
   $$(`#page-${page} .reveal`).forEach(el => el.classList.remove("in")); setTimeout(revealNow, 60);
   currentPage = page; window.scrollTo({ top: 0 });
   setTimeout(resizeCharts, 30);
+  heroSync();
   loaders[page]();
 }
 let currentPage = null;
 const PAGE_IDS = Object.keys(loaders);
+let heroRaf = 0;
+function heroSync() {
+  heroRaf = 0;
+  const h = $("#hero-title"), w = h?.parentElement, on = currentPage === "dashboard" && w && w.offsetParent;
+  if (!on) { document.body.classList.remove("hero-on"); return; }
+  const hdr = $(".site-header").getBoundingClientRect().bottom, r = w.getBoundingClientRect();
+  const p = Math.min(1, Math.max(0, (hdr + r.height * 0.9 - r.bottom) / (r.height * 0.9)));
+  if (!REDUCED) { h.style.transform = p ? `translateY(${(p * r.height * 0.3).toFixed(1)}px) scale(${(1 - p * 0.32).toFixed(3)})` : ""; h.style.opacity = p ? (1 - p * 0.95).toFixed(3) : ""; }
+  document.body.classList.toggle("hero-on", p < 0.85);
+}
+window.addEventListener("scroll", () => { if (!heroRaf) heroRaf = requestAnimationFrame(heroSync); }, { passive: true });
+window.addEventListener("resize", () => { if (!heroRaf) heroRaf = requestAnimationFrame(heroSync); });
 window.addEventListener("hashchange", () => { const hsh = location.hash.replace("#", ""); if (PAGE_IDS.includes(hsh) && hsh !== currentPage) navigate(hsh); });
 $("#menuBtn").addEventListener("click", () => { const open = $("#siteNav").classList.toggle("open"); $("#menuBtn").setAttribute("aria-expanded", String(open)); });
 $("#to-top").addEventListener("click", (e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); });
 
 /* ---------- items ---------- */
 // guests read items through a view without description, cans per case or lb per case
-async function loadItems() { items = await fetchAll(role() === "guest" ? "items_guest" : "items", "code"); }
+async function loadItems() { items = await fetchAll(role() === "guest" ? "items_guest" : "items", "code"); shiftMemo = {}; }
 let itemSort = { key: "code", dir: 1 };
 function itemCalc(it) {
   if (it.n2o_g_per_can !== undefined) { const o = it.n2o_g_per_can == null ? null : Number(it.n2o_g_per_can), n = it.n2_g_per_can == null ? null : Number(it.n2_g_per_can);
@@ -177,9 +257,12 @@ function itemCalc(it) {
 }
 function renderItems() {
   const brands = [...new Set(items.map(i => i.brand).filter(Boolean))].sort();
-  const bsel = $("#items-brand"); const cur = bsel.value; bsel.innerHTML = `<option value="">All brands</option>` + brands.map(b => `<option value="${b}"${b === cur ? " selected" : ""}>${b}</option>`).join("");
+  // brand filter: type or pick a brand; anything else typed searches codes and descriptions too
+  $("#items-brand-list").innerHTML = brands.map(b => `<option value="${esc(b)}"></option>`).join("");
+  const q = $("#items-brand").value.trim().toLowerCase(), exact = brands.find(b => b.toLowerCase() === q);
+  const keep = (it) => !q || (exact ? it.brand === exact : `${it.brand || ""} ${it.code} ${it.description || ""}`.toLowerCase().includes(q));
   const k = itemSort.key, d = itemSort.dir;
-  const rows = items.map(it => ({ ...it, ...itemCalc(it) })).filter(it => !cur || it.brand === cur)
+  const rows = items.map(it => ({ ...it, ...itemCalc(it) })).filter(keep)
     .sort((x, y) => { const a = x[k], b = y[k]; if (a == null && b == null) return 0; if (a == null) return 1; if (b == null) return -1; return (typeof a === "string" ? a.localeCompare(b) : a - b) * d || x.code.localeCompare(y.code); });
   $$("#items-table th[data-sort]").forEach(th => { th.classList.toggle("asc", th.dataset.sort === k && d === 1); th.classList.toggle("desc", th.dataset.sort === k && d === -1); });
   const tb = $("#items-table tbody"); tb.innerHTML = "";
@@ -187,15 +270,16 @@ function renderItems() {
   rows.forEach(it => {
     const tr = document.createElement("tr");
     const ratioMismatch = it.n2o_ratio_vol != null && it.massR != null && Math.abs(it.n2o_ratio_vol - it.massR) < 0.02;
-    tr.innerHTML = `<td><b title="${(it.notes || "").replace(/"/g, "&quot;")}">${it.code}</b>${it.gas_blend === false ? " <small class='empty'>non-gas</small>" : ""}${it.notes ? " <span class='note-dot' title='" + it.notes.replace(/'/g, "&#39;") + "'>●</span>" : ""}</td><td><span class="chip chip-${(it.brand || "").replace(/[^a-z]/gi, "").toLowerCase()}">${it.brand || "—"}</span></td><td class="g-hide">${it.description || "<span class='empty'>—</span>"}</td><td class="num g-hide">${flag(it.cans_per_case)}</td>
+    tr.innerHTML = `<td class="it"><b title="${(it.notes || "").replace(/"/g, "&quot;")}">${it.code}</b>${it.gas_blend === false ? " <small class='empty'>non-gas</small>" : ""}${it.notes ? " <span class='note-dot' title='" + it.notes.replace(/'/g, "&#39;") + "'>●</span>" : ""}${it.description ? `<span class="sub g-hide">${esc(it.description)}</span>` : ""}</td><td><span class="chip chip-${(it.brand || "").replace(/[^a-z]/gi, "").toLowerCase()}">${it.brand || "—"}</span></td><td class="num g-hide">${flag(it.cans_per_case)}</td>
       <td class="num grp g-hide">${it.n2o_lb_per_case != null ? Number(it.n2o_lb_per_case).toFixed(4) : flag(null)}</td><td class="num g-hide">${it.n2_lb_per_case != null ? Number(it.n2_lb_per_case).toFixed(4) : flag(null)}</td>
       <td class="num grp n2o">${it.n2oG != null ? it.n2oG.toFixed(2) : flag(null)}</td><td class="num n2">${it.n2G != null ? it.n2G.toFixed(2) : flag(null)}</td><td class="num"><b>${it.totG != null ? it.totG.toFixed(2) : flag(null)}</b></td>
       <td class="num grp">${it.n2o_ratio_vol != null ? (it.n2o_ratio_vol * 100).toFixed(1) + "%" : "<span class='empty'>default</span>"}</td><td class="num ${ratioMismatch ? "warn" : ""}" title="${ratioMismatch ? "BOM split equals the volume ratio numerically: BOM likely written by mass" : ""}">${it.massR != null ? (it.massR * 100).toFixed(1) + "%" : flag(null)}</td>
-      <td class="actions"><button class="small" data-edit="${it.code}">Edit</button><button class="small danger" data-del="${it.code}">Delete</button></td>`;
+      <td class="actions"><button type="button" class="tlink admin-only" data-edit="${it.code}">Edit</button><button type="button" class="tlink del admin-only" data-del="${it.code}">Delete</button></td>`;
     tb.appendChild(tr);
   });
   tb.onclick = async (e) => {
-    if (role() === "guest") return;
+    if (!e.target.dataset.edit && !e.target.dataset.del) return;
+    if (!canEdit()) return;
     const code = e.target.dataset.edit || e.target.dataset.del; if (!code) return;
     const it = items.find(x => x.code === code);
     if (e.target.dataset.edit) { const f = $("#item-form"); f.classList.remove("hidden"); Object.keys(it).forEach(k => { if (f.elements[k]) f.elements[k].value = it[k] ?? ""; }); f.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
@@ -206,120 +290,155 @@ function renderItems() {
   };
   const sel = $("#run-item"); sel.onchange = () => { const it = items.find(i => i.code === sel.value); if (it?.cans_per_case) $("#run-form").elements.cans_per_case.value = it.cans_per_case; }; sel.innerHTML = `<option value="">— not recorded —</option>` + items.map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}${i.gas_blend === false ? " (non-gas)" : ""}</option>`).join("");
 }
-$("#items-brand").addEventListener("change", renderItems);
-$("#items-add").addEventListener("click", () => { const f = $("#item-form"); f.reset(); f.classList.remove("hidden"); f.elements.code.focus(); });
+let itemsT; $("#items-brand").addEventListener("input", () => { clearTimeout(itemsT); itemsT = setTimeout(renderItems, 150); });
 $("#item-cancel").addEventListener("click", () => { const f = $("#item-form"); f.reset(); f.classList.add("hidden"); $("#item-error").textContent = ""; });
+$("#item-form").addEventListener("submit", async (e) => {
+  e.preventDefault(); if (!canEdit()) return; const f = e.target, row = formData(f); row.code = normCode(row.code);
+  if (!row.code) { $("#item-error").textContent = "Enter an item code."; return; }
+  const { error } = await sb.from("items").upsert(row, { onConflict: "code" });
+  if (error) { $("#item-error").textContent = error.message; return; }
+  f.reset(); f.classList.add("hidden"); $("#item-error").textContent = ""; await loadItems(); renderItems(); toast(`Item ${row.code} saved`);
+});
 $("#items-table thead").addEventListener("click", (e) => { const th = e.target.closest("th[data-sort]"); if (!th) return; itemSort = th.dataset.sort === itemSort.key ? { key: itemSort.key, dir: -itemSort.dir } : { key: th.dataset.sort, dir: 1 }; renderItems(); });
 $("#items-export").addEventListener("click", () => csv(items.map(i => { const c = itemCalc(i); const g = role() === "guest";   // guests don't get description, cans/case or lb/case
     return { code: i.code, brand: i.brand, ...(g ? {} : { description: i.description, cans_per_case: i.cans_per_case, n2o_lb_per_case: i.n2o_lb_per_case, n2_lb_per_case: i.n2_lb_per_case }), n2o_g_per_can: c.n2oG, n2_g_per_can: c.n2G, total_g_per_can: c.totG, n2o_ratio_vol: i.n2o_ratio_vol, bom_split_mass: c.massR, target_gas_g: i.target_gas_g, notes: i.notes }; }), "items.csv"));
 
-/* ---------- production runs ---------- */
+/* ---------- production runs: months of days as dots, and every run in them ---------- */
+let calSel = null, calN = 3, calBack = 0;   // selected day, months shown, months paged back (dots: C navy, D sky)
+const DAY_MS = 864e5;
 async function loadRuns() {
   renderItems();
-  const rows = await fetchAll("production_runs", "run_date", false);
-  const tb = $("#runs-table tbody"); tb.innerHTML = "";
-  rows.forEach(r => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${r.line}</td><td>${r.run_date}</td><td>${r.shift}</td><td>${r.item_code || "<span class='empty'>—</span>"}</td><td class="num">${fmt(r.cases)}</td><td class="num">${r.cans_per_case}</td><td>${r.notes || ""}</td>
-      <td><button class="small danger" data-del="${r.id}">Delete</button></td>`;
-    tb.appendChild(tr);
-  });
-  tb.onclick = async (e) => {
-    const id = e.target.dataset.del; if (!id || !confirm("Delete this run?")) return;
+  const runs = await getTable("production_runs");
+  const byDay = {}; runs.forEach(r => (byDay[r.run_date] = byDay[r.run_date] || []).push(r));
+  const today = new Date(); today.setHours(12, 0, 0, 0); const todayS = localDate(today);
+  const endM = new Date(today.getFullYear(), today.getMonth() - calBack, 1);
+  const months = []; for (let i = calN - 1; i >= 0; i--) months.push(new Date(endM.getFullYear(), endM.getMonth() - i, 1, 12));
+  const from = localDate(months[0]), to = localDate(new Date(endM.getFullYear(), endM.getMonth() + 1, 0, 12));
+  const linesOn = (d) => [...new Set((byDay[d] || []).map(r => r.line))].sort().join("");
+  let nDays = 0, nC = 0, nD = 0, nB = 0;
+  // grid like Claude Code's: weeks across, Monday to Sunday down, one small dot per day; a line between months
+  const block = (m) => {
+    const y = m.getFullYear(), mo = m.getMonth(), days = new Date(y, mo + 1, 0).getDate(), off = (new Date(y, mo, 1).getDay() + 6) % 7, cols = Math.ceil((off + days) / 7); let runDays = 0;
+    const cells = [];
+    for (let i = 0; i < cols * 7; i++) {
+      const d = i - off + 1; if (d < 1 || d > days) { cells.push(`<span class="cd pad"></span>`); continue; }
+      const ds = localDate(new Date(y, mo, d, 12)), L = linesOn(ds), cls = L === "CD" ? "cd2" : L === "C" ? "c" : L === "D" ? "d" : "";
+      const extra = `${ds === todayS ? " today" : ""}${ds === calSel ? " sel" : ""}${ds > todayS ? " fut" : ""}`;
+      if (L) { runDays++; nDays++; if (L === "CD") nB++; if (L.includes("C")) nC++; if (L.includes("D")) nD++; }
+      const label = new Date(y, mo, d, 12).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+      cells.push(L ? `<button type="button" class="cd ${cls}${extra}" data-d="${ds}" aria-label="${label}: ${L === "CD" ? "C Line and D Line" : LINE_NAME[L]}"></button>` : `<span class="cd${extra}" data-d="${ds}"></span>`);
+    }
+    const name = m.toLocaleDateString("en-US", { month: "short" }) + (mo === 0 || m === months[0] ? ` ${y}` : "");
+    return `<div class="cm2"><div class="cm2-h">${name}${runDays ? `<small>${runDays}</small>` : ""}</div><div class="cm2-g" style="--cols:${cols}">${cells.join("")}</div></div>`;
+  };
+  const dayCol = `<div class="cm2 cm2-days" aria-hidden="true"><div class="cm2-h">&nbsp;</div><div class="cm2-g" style="--cols:1">${["Mon", "", "Wed", "", "Fri", "", ""].map(t => `<span>${t}</span>`).join("")}</div></div>`;
+  const cal = $("#cal"); cal.className = `cal-strip n${calN}`; cal.innerHTML = dayCol + months.map(block).join("");
+  cal.closest(".cal-body").classList.toggle("wide", calN === 12);
+  const span = `${months[0].toLocaleDateString("en-US", { month: "short", year: months[0].getFullYear() !== endM.getFullYear() ? "numeric" : undefined })} – ${endM.toLocaleDateString("en-US", { month: "short", year: "numeric" })}`;
+  $("#cal-title").textContent = `Days with production, ${span}`;
+  $("#cal-sum").innerHTML = `<span class="cs-big"><b>${nDays}</b> days with runs</span><span><i class="cd c"></i>C Line <b>${nC}</b></span><span><i class="cd d"></i>D Line <b>${nD}</b></span><span><i class="cd cd2"></i>Both lines <b>${nB}</b></span><span class="muted"><i class="cd"></i>No run</span>`;
+  const sc = cal.parentElement; sc.scrollLeft = sc.scrollWidth;
+  $("#cal-next").disabled = calBack === 0;
+  if (calSel && (calSel < from || calSel > to)) calSel = null;
+  renderRunList(runs, byDay, from, to);
+  $("#runs-export").onclick = () => csv([...runs].sort((x, y) => y.run_date.localeCompare(x.run_date) || x.line.localeCompare(y.line) || x.shift - y.shift).map(r => ({ line: r.line, run_date: r.run_date, shift: r.shift, item_code: r.item_code, cases: r.cases, cans_per_case: r.cans_per_case, notes: r.notes })), "production_runs.csv");
+  cal.onclick = (e) => { const b = e.target.closest("button.cd"); if (!b) return; calSel = calSel === b.dataset.d ? null : b.dataset.d; $$("#cal .cd.sel").forEach(x => x.classList.remove("sel")); if (calSel) b.classList.add("sel"); renderRunList(runs, byDay, from, to, true); };
+  calTip(byDay);
+}
+// the list under the calendar: every run in the months shown, or one day's runs; Reset goes back to all
+async function renderRunList(runs, byDay, from, to, scroll) {
+  const box = $("#cal-day");
+  const list = (calSel ? (byDay[calSel] || []) : runs.filter(r => r.run_date >= from && r.run_date <= to)).slice().sort((a, b) => b.run_date.localeCompare(a.run_date) || a.line.localeCompare(b.line) || a.shift - b.shift);
+  const first = await firstRunDate(), shiftRows = first ? await computeShiftRows(["C", "D"], first, localDate(new Date())) : [];
+  const waste = {}; shiftRows.forEach(r => waste[`${r.line}|${r.date}|${r.shift}`] = r);
+  const nice = (d, o) => new Date(d + "T12:00:00").toLocaleDateString("en-US", o);
+  const title = calSel ? nice(calSel, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : "All production runs";
+  const sub = calSel ? `${list.length} run${list.length === 1 ? "" : "s"} logged` : `${list.length} run${list.length === 1 ? "" : "s"} from ${nice(from, { month: "short", day: "numeric" })} to ${nice(to, { month: "short", day: "numeric", year: "numeric" })}`;
+  const it = (c) => items.find(i => i.code === c);
+  box.innerHTML = `<div class="sec-head"><div><h2>${title}</h2><p class="lede">${sub}</p></div><div class="acts">${calSel ? `<button type="button" class="btn secondary small" id="day-reset">Reset</button><button type="button" class="btn secondary small admin-only" id="day-add">Add run on this day</button>` : ""}</div></div>`
+    + (list.length ? `<div class="tbl-wrap runs-wrap"><table class="data compact runs-tbl"><thead><tr>${calSel ? "" : "<th>Date</th>"}<th>Line</th><th>Shift</th><th>Item</th><th class="num">Cases</th><th class="num">Cans / case</th><th class="num">Cans</th><th class="num">Waste %</th><th>Notes</th><th class="admin-only"></th></tr></thead><tbody>`
+      + list.map(r => { const w = waste[`${r.line}|${r.run_date}|${r.shift}`]; const i = it(r.item_code);
+        return `<tr>${calSel ? "" : `<td class="date">${nice(r.run_date, { weekday: "short", month: "short", day: "numeric" })}</td>`}<td><span class="ln ln-${r.line}">${r.line}</span></td><td class="nw">${r.shift} <small>${["", "07–15", "15–23", "23–07"][r.shift]}</small></td><td><b>${esc(r.item_code || "—")}</b>${i?.brand ? ` <small>${esc(i.brand)}</small>` : ""}</td><td class="num">${fmt(r.cases)}</td><td class="num">${r.cans_per_case}</td><td class="num">${fmt(r.cases * (r.cans_per_case || 12))}</td>
+          <td class="num">${w && w.wastePct != null ? `<span class="waste-v">${pct(w.wastePct)}</span>` : `<span class="muted">${w && w.totalLb == null ? "no meter data" : "—"}</span>`}</td><td class="notes">${esc(r.notes || "")}</td><td class="actions admin-only"><button type="button" class="tlink del" data-del="${r.id}">Delete</button></td></tr>`; }).join("")
+      + `</tbody></table></div>` : `<p class="note">No runs logged in these months.</p>`);
+  box.classList.remove("in"); void box.offsetWidth; box.classList.add("in");
+  $("#day-reset")?.addEventListener("click", () => { calSel = null; $$("#cal .cd.sel").forEach(x => x.classList.remove("sel")); renderRunList(runs, byDay, from, to); });
+  $("#day-add")?.addEventListener("click", () => openRunForm(calSel));
+  box.querySelector("tbody")?.addEventListener("click", async (e) => {
+    const id = e.target.dataset.del; if (!id) return; if (!canEdit() || !confirm("Delete this run?")) return;
     const { error } = await sb.from("production_runs").delete().eq("id", id);
     if (error) return toast(error.message, true);
-    loadRuns(); toast("Run deleted");
-  };
-  $("#runs-export").onclick = () => csv(rows, "production_runs.csv");
+    invalidate("production_runs"); loadRuns(); renderFresh(); toast("Run deleted");
+  });
+  if (scroll) box.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "nearest" });
 }
+function calTip(byDay) {
+  const card = $("#cal-card"); let tip = $("#cal-tip"); if (!tip) { tip = document.createElement("div"); tip.id = "cal-tip"; tip.className = "cal-tip"; card.appendChild(tip); }
+  $("#cal").onmouseover = (e) => { const c = e.target.closest(".cd[data-d]"); if (!c) { tip.classList.remove("on"); return; }
+    const d = c.dataset.d, runs = byDay[d] || [], by = {}; runs.forEach(r => (by[r.line] = by[r.line] || new Set()).add(r.shift));
+    const col = { C: getComputedStyle($("#page-runs")).getPropertyValue("--cal-c"), D: getComputedStyle($("#page-runs")).getPropertyValue("--cal-d") };
+    tip.innerHTML = `<b>${new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</b>` + (runs.length ? Object.keys(by).sort().map(L => `<span>${dot(col[L])}${LINE_NAME[L]} · shift ${[...by[L]].sort().join(", ")}</span>`).join("") : `<span class="muted">No run</span>`);
+    const cr = card.getBoundingClientRect(), r = c.getBoundingClientRect();
+    tip.style.left = `${Math.min(cr.width - 190, Math.max(8, r.left - cr.left + r.width / 2 - 85))}px`; tip.style.top = `${r.top - cr.top - 10}px`; tip.classList.add("on"); };
+  $("#cal").onmouseleave = () => tip.classList.remove("on");
+}
+segBind("#cal-range", (v) => { calN = Number(v); calBack = 0; loadRuns(); });
+$("#cal-prev").addEventListener("click", () => { calBack += calN; loadRuns(); });
+$("#cal-next").addEventListener("click", () => { calBack = Math.max(0, calBack - calN); loadRuns(); });
+function openRunForm(date) { if (!canEdit()) return; const f = $("#run-form"); f.classList.remove("hidden"); if (date) f.elements.run_date.value = date; f.elements.line.focus(); f.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "nearest" }); }
+$("#runs-add").addEventListener("click", () => openRunForm(calSel));
+$("#run-cancel").addEventListener("click", () => { const f = $("#run-form"); f.reset(); f.classList.add("hidden"); });
 $("#run-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
+  e.preventDefault(); if (!canEdit()) return;
   const row = formData(e.target); row.shift = Number(row.shift); if (row.item_code) row.item_code = normCode(row.item_code);
   const { error } = await sb.from("production_runs").insert(row);
   if (error) return toast(error.message, true);
-  e.target.reset(); e.target.elements.cans_per_case.value = 12; loadRuns(); toast("Run saved");
+  const keep = ["line", "run_date"].map(k => [k, e.target.elements[k].value]); e.target.reset(); keep.forEach(([k, v]) => e.target.elements[k].value = v); e.target.elements.cans_per_case.value = 12;
+  calSel = row.run_date; invalidate("production_runs"); loadRuns(); renderFresh(); toast("Run saved");
 });
+// dashboard shortcuts
+let pwJump = false;
+$$(".hero-actions a[data-go]").forEach(a => a.addEventListener("click", () => { if (a.dataset.go === "runs") { calSel = null; calBack = 0; } else { pwSetMode("find"); pwJump = true; } }));
 
-/* ---------- meter readings ---------- */
-function parseReadings(text, order = "n2o_first", line = "C") {
-  const rows = [];
-  text.split(/\r?\n/).forEach(line => {
-    const parts = line.split(/[\t,;]/).map(s => s.trim().replace(/^"|"$/g, ""));
-    if (parts.length < 3) return;
-    const ts = new Date(parts[0]); let a = Number(parts[1]); let b = Number(parts[2]);
-    if (isNaN(ts) || isNaN(a) || isNaN(b)) return;
-    if (order === "n2_first") [a, b] = [b, a];
-    rows.push({ line, ts: ts.toISOString(), n2o_scf: a, n2_scf: b });
-  });
-  return rows;
-}
-$("#readings-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const rows = parseReadings(e.target.elements.paste.value, e.target.elements.order.value, e.target.elements.line.value);
-  if (!rows.length) return toast("No readings recognised in the pasted text", true);
-  const seen = new Set(); const uniq = rows.filter(r => !seen.has(r.ts) && seen.add(r.ts));
-  let ok = 0;
-  for (let i = 0; i < uniq.length; i += 500) {
-    const { error } = await sb.from("gas_readings").upsert(uniq.slice(i, i + 500), { onConflict: "line,ts", ignoreDuplicates: true });
-    if (error) return toast(error.message, true);
-    ok += Math.min(500, uniq.length - i);
-    $("#readings-status").textContent = `Imported ${ok} of ${uniq.length}…`;
-  }
-  $("#readings-status").textContent = ""; e.target.elements.paste.value = ""; loadReadings(); toast(`Imported ${uniq.length} readings`);
-});
+/* ---------- meter readings: view and export by line and date range (imports removed) ---------- */
 function shiftOf(d) { // returns {date:'YYYY-MM-DD', shift}
   const h = d.getHours(); let date = new Date(d); let shift;
   if (h >= 7 && h < 15) shift = 1; else if (h >= 15 && h < 23) shift = 2; else { shift = 3; if (h < 7) date.setDate(date.getDate() - 1); }
   return { date: localDate(date), shift };
 }
 async function loadReadings() {
-  const rows = await fetchAll("gas_readings", "ts");
+  const [gas, fill, down] = await Promise.all(["gas_readings", "filler_readings", "filler_downtime"].map(getTable));
+  const fromI = $("#rd-from"), toI = $("#rd-to");
+  if (!fromI.value && gas.length) { fromI.value = localDate(new Date(gas[0].ts)); toI.value = localDate(new Date(gas[gas.length - 1].ts)); }
+  const L = segVal("#rd-line"), lines = L === "ALL" ? ["C", "D"] : [L];
+  const t0 = new Date((fromI.value || "2000-01-01") + "T00:00:00").getTime(), t1 = new Date((toI.value || "2100-01-01") + "T00:00:00").getTime() + DAY_MS;
+  const inR = (r) => lines.includes(r.line) && (() => { const t = new Date(r.ts).getTime(); return t >= t0 && t < t1; })();
+  const g = gas.filter(inR), f = fill.filter(inR), dn = down.filter(inR);
+  $("#rd-count").textContent = `${fmt(g.length)} gas · ${fmt(f.length)} filler · ${fmt(dn.length)} downtime readings in range`;
   const byLine = {};
-  rows.forEach(r => (byLine[r.line] = byLine[r.line] || []).push({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
+  g.forEach(r => (byLine[r.line] = byLine[r.line] || []).push({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
   const groups = {};
   Object.entries(byLine).forEach(([line, pts]) => pts.forEach(p => { const k = shiftOf(new Date(p.t)); const key = `${line}|${k.date}|${k.shift}`; (groups[key] = groups[key] || { line, ...k, n: 0 }).n++; }));
-  const tb = $("#readings-table tbody"); tb.innerHTML = "";
-  Object.values(groups).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line)).forEach(g => {
-    const pts = byLine[g.line];
-    const [s, e] = shiftWindow(g.date, g.shift);
-    const first = Math.max(s, pts[0].t), last = Math.min(e, pts[pts.length - 1].t);
-    const a = interp(pts, first), b = interp(pts, last);
-    const n2o = b.n2o - a.n2o, n2 = b.n2 - a.n2, pct = n2o + n2 > 0 ? n2o / (n2o + n2) * 100 : null;
-    if (n2o + n2 < 50) return;   // idle shift (no meaningful gas flow) — not listed
-    const full = first === s && last === e;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${g.line}</td><td>${g.date}</td><td>${g.shift}</td><td>${new Date(first).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–${new Date(last).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${full ? "" : " (partial)"}</td>
-      <td class="num">${fmt(g.n)}</td><td class="num n2o">${fmt(n2o)}</td><td class="num n2">${fmt(n2)}</td><td class="num n2o">${fmt(n2o * D.n2o)}</td><td class="num n2">${fmt(n2 * D.n2)}</td>
-      <td>${pct == null ? "—" : `N₂O ${pct.toFixed(1)}% / ${(100 - pct).toFixed(1)}% N₂`}</td>`;
-    tb.appendChild(tr);
+  const shiftRows = [];
+  Object.values(groups).sort((a, b) => b.date.localeCompare(a.date) || b.shift - a.shift || a.line.localeCompare(b.line)).forEach(gr => {
+    const pts = byLine[gr.line]; const [s0, e0] = shiftWindow(gr.date, gr.shift);
+    const first = Math.max(s0, pts[0].t), last = Math.min(e0, pts[pts.length - 1].t); if (last <= first) return;
+    const a = interp(pts, first), b = interp(pts, last); if (!a || !b) return;
+    const n2o = b.n2o - a.n2o, n2 = b.n2 - a.n2; if (n2o + n2 < 50) return;   // idle shift (no meaningful gas flow): not listed
+    shiftRows.push({ line: gr.line, date: gr.date, shift: gr.shift, from: new Date(first), to: new Date(last), full: first === s0 && last === e0, points: gr.n, n2o, n2, pct: n2o / (n2o + n2) * 100 });
   });
-  $("#readings-export").onclick = () => csv(rows, "gas_readings.csv");
+  const hm = (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  $("#readings-table tbody").innerHTML = shiftRows.map(r => `<tr><td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td>${hm(r.from)}–${hm(r.to)}${r.full ? "" : " <small>(partial)</small>"}</td><td class="num">${fmt(r.points)}</td><td class="num n2o">${fmt(r.n2o)}</td><td class="num n2">${fmt(r.n2)}</td><td class="num n2o">${fmt(r.n2o * D.n2o)}</td><td class="num n2">${fmt(r.n2 * D.n2)}</td><td>N₂O ${r.pct.toFixed(1)}% / ${(100 - r.pct).toFixed(1)}% N₂</td></tr>`).join("")
+    || `<tr><td colspan="10" class="empty">No meter readings for this line and range.</td></tr>`;
+  const tag = `${L === "ALL" ? "C-D" : L}_${fromI.value}_to_${toI.value}`;
+  $("#rd-export").onclick = () => { const w = $("#rd-what").value;
+    if (w === "gas") csv(g.map(r => ({ line: r.line, ts: r.ts, n2o_scf: r.n2o_scf, n2_scf: r.n2_scf })), `gas_readings_${tag}.csv`);
+    else if (w === "filler") csv(f.map(r => ({ line: r.line, ts: r.ts, cpm: r.cpm })), `filler_cpm_${tag}.csv`);
+    else if (w === "down") csv(dn.map(r => ({ line: r.line, ts: r.ts, downtime_mins: r.downtime_mins })), `filler_downtime_${tag}.csv`);
+    else csv(shiftRows.map(r => ({ line: r.line, date: r.date, shift: r.shift, from: r.from.toISOString(), to: r.to.toISOString(), partial: !r.full, points: r.points, n2o_scf: r.n2o, n2_scf: r.n2, n2o_lb: r.n2o * D.n2o, n2_lb: r.n2 * D.n2, n2o_pct_vol: r.pct })), `meter_by_shift_${tag}.csv`); };
 }
-
-$("#filler-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const line = e.target.elements.line.value; const rows = [];
-  e.target.elements.paste.value.split(/\r?\n/).forEach(l => {
-    const p = l.split(/[\t,;]/).map(s => s.trim().replace(/^"|"$/g, "")); if (p.length < 2) return;
-    const ts = new Date(p[0]); const nums = p.slice(1).map(Number).filter(n => !isNaN(n)); if (isNaN(ts) || !nums.length) return;
-    rows.push({ line, ts: ts.toISOString(), cpm: nums.reduce((x, y) => x + y, 0) });
-  });
-  if (!rows.length) return toast("No filler readings recognised", true);
-  for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from("filler_readings").upsert(rows.slice(i, i + 500), { onConflict: "line,ts", ignoreDuplicates: true }); if (error) return toast(error.message, true); }
-  e.target.elements.paste.value = ""; toast(`Imported ${rows.length} filler readings to ${line} Line`);
-});
-$("#downtime-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const line = e.target.elements.line.value; const rows = [];
-  e.target.elements.paste.value.split(/\r?\n/).forEach(l => {
-    const p = l.split(/[\t,;]/).map(s => s.trim().replace(/^"|"$/g, "")); if (p.length < 2) return;
-    const ts = new Date(p[0]); const nums = p.slice(1).map(Number).filter(n => !isNaN(n)); if (isNaN(ts) || !nums.length) return;
-    rows.push({ line, ts: ts.toISOString(), downtime_mins: Math.min(...nums) });
-  });
-  if (!rows.length) return toast("No downtime readings recognised", true);
-  for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from("filler_downtime").upsert(rows.slice(i, i + 500), { onConflict: "line,ts", ignoreDuplicates: true }); if (error) return toast(error.message, true); }
-  e.target.elements.paste.value = ""; toast(`Imported ${rows.length} downtime readings to ${line} Line`);
-});
+segBind("#rd-line", () => loadReadings());
+["#rd-from", "#rd-to"].forEach(id => $(id).addEventListener("change", loadReadings));
 
 /* ---------- gas weight checks ---------- */
 function checkShift(c) { // shift from check time; 00:00-06:59 belongs to the previous day's shift 3
@@ -383,80 +502,94 @@ function gasWeightModel(checks, enactRows, shiftRows) {
   ];
   return { rows: list, coverage, noTime, low, ignored: Math.max(0, ignored) };
 }
-let gwModel = null, gwLine = "ALL", gwAll = false, gwItem = null;
+let gwModel = null, gwAll = false;
+// the floating bar filters the whole page: line, date and item first; shift and gasser behind "More filters"
+function pageFilters() { const f = $("#check-form").elements, L = segVal("#pw-line"); return { line: L === "ALL" ? "" : L, date: f.check_date.value, q: f.item_code.value.trim(), shift: f.f_shift.value, gasser: f.f_gasser.value }; }
+function itemMatcher(q) {
+  if (!q) return () => true;
+  const ql = q.toLowerCase(), code = normCode(q).toLowerCase();
+  return (c) => { const ic = String(c || "").toLowerCase(); if (ic && (ic.startsWith(code) || ic.startsWith(ql))) return true; const it = items.find(i => i.code === normCode(c)); return !!it && `${it.brand || ""} ${it.description || ""}`.toLowerCase().includes(ql); };
+}
 function renderGasWeight() {
   const m = gwModel; if (!m) return;
-  const both = m.rows.filter(r => r.paper && r.enact).length, wasted = m.rows.filter(r => r.waste != null), medW = med(wasted.map(r => r.waste));
-  // coverage timeline
-  const dates = m.coverage.flatMap(c => c.span || []), lo = dates.length ? dates.reduce((a, d) => d < a ? d : a) : null, hi = dates.length ? dates.reduce((a, d) => d > a ? d : a) : null;
-  if (lo) { const t0 = new Date(lo.slice(0, 8) + "01T00:00").getTime(), t1 = new Date(hi + "T00:00").getTime() + 6 * 864e5, x = (d) => (new Date(d + "T00:00").getTime() - t0) / (t1 - t0) * 100;
-    const months = []; for (let d = new Date(t0); d.getTime() <= t1; d.setMonth(d.getMonth() + 1)) months.push(d.toLocaleDateString([], { month: "short" }));
-    $("#gw-cov").innerHTML = `<div class="tl">${m.coverage.map((c, i) => `<div class="lab">${c.label}<small>${esc(c.sub)}</small></div><div class="track">${c.span ? (() => { const l = x(c.span[0]), w = Math.max(.9, x(c.span[1]) - l + .6); return `<div class="bar ${c.cls}${l + w > 78 ? " right" : ""}" style="left:${l}%;width:${w}%;animation-delay:${i * 110}ms"><span>${shortDate(c.span[0])}–${shortDate(c.span[1])}</span></div>`; })() : `<span class="none">no data</span>`}</div>`).join("")}<div class="axis">${months.map(x => `<span>${x}</span>`).join("")}</div></div>`;
-  } else $("#gw-cov").innerHTML = `<p class="note">No paper checks or Enact gas weights yet.</p>`;
-  $("#gw-kpis").innerHTML = [
-    ["Paper shifts", m.rows.filter(r => r.paper).length, `${fmt(m.rows.reduce((a, r) => a + (r.paper?.n || 0), 0))} readings`, "paper"],
-    ["Enact shifts", m.rows.filter(r => r.enact).length, `${fmt(m.rows.reduce((a, r) => a + (r.enact?.n || 0), 0))} cans weighed`, "enact"],
-    ["Both on one shift", both, both ? "averaged into one target" : "nothing to compare yet", "both"],
-    ["With a waste factor", wasted.length, wasted.length ? `median ${pct(medW)} vs measured` : "needs meter data + runs", "meter"],
-  ].map(([h, v, s, c]) => `<div class="kpi mini-kpi gw-${c}"><h3>${h}</h3><div class="big">${v}<small>${s}</small></div></div>`).join("");
+  const F = pageFilters(), hit = itemMatcher(F.q), filtered = !!(F.line || F.date || F.q || F.shift);
+  const rows = m.rows.filter(r => (!F.line || r.line === F.line) && (!F.date || r.date === F.date) && (!F.shift || String(r.shift) === F.shift) && (!F.q || r.item.split(" + ").some(hit)));
   // table
-  const full = m.rows.filter(r => (gwLine === "ALL" || r.line === gwLine) && (!gwItem || r.item.split(" + ").includes(gwItem))), list = gwAll || gwItem ? full : full.slice(0, 10);
-  const more = $("#gw-more"); more.hidden = full.length <= 10 || !!gwItem; more.textContent = gwAll ? "Show the latest 10" : `Show all ${full.length} shifts`;
-  $("#gw-filter").innerHTML = gwItem ? `Showing <b>${esc(gwItem)}</b> only · <a href="#" id="gw-clear">show all items</a>` : "";
-  $("#gw-clear")?.addEventListener("click", (e) => { e.preventDefault(); gwItem = null; renderGasWeight(); });
+  const full = rows, list = gwAll || filtered ? full : full.slice(0, 10);
+  const more = $("#gw-more"); more.hidden = full.length <= 10 || filtered; more.textContent = gwAll ? "Show the latest 10" : `Show all ${full.length} shifts`;
+  const nd = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  $("#gw-filter").innerHTML = filtered ? `Showing ${[F.line && LINE_NAME[F.line], F.date && nd(F.date), F.shift && "shift " + F.shift, F.q && `<b>${esc(F.q)}</b>`].filter(Boolean).join(" · ")}: ${full.length} shift${full.length === 1 ? "" : "s"}` : "";
   const dash = '<span class="muted">—</span>';
   $("#gw-table tbody").innerHTML = list.map((r, i) => `<tr class="${r.enact ? "run has-g" : ""}" data-i="${i}"><td>${r.line}</td><td class="date">${r.date}</td><td>${r.shift}</td><td><b>${esc(r.item)}</b></td>
       <td class="nw">${r.paper ? '<span class="src paper">Paper</span>' : ""}${r.enact ? '<span class="src enact">Enact</span>' : ""}</td>
-      <td class="num grp">${r.paper ? `<b>${fmt(r.paper.g, 2)}</b> <small>${r.paper.n} rdg · ${fmt(r.paper.mn, 1)}–${fmt(r.paper.mx, 1)}</small>` : dash}</td>
+      <td class="num grp stack">${r.paper ? `<b>${fmt(r.paper.g, 2)}</b> <small>${r.paper.n} rdg · ${fmt(r.paper.mn, 1)}–${fmt(r.paper.mx, 1)}</small>` : dash}</td>
       <td class="num">${r.enact ? `<b>${fmt(r.enact.g, 2)}</b> <small>${r.enact.n} pcs</small>` : dash}</td>
       <td class="num grp">${r.bom ? fmt(r.bom, 2) : '<span class="muted">no BOM</span>'}</td>
       <td class="num ${r.vsBom == null ? "" : r.vsBom > 0 ? "over" : "under"}">${pct(r.vsBom)}</td>
-      <td class="num grp">${r.meterG ? `${fmt(r.meterG, 1)} <small>${fmt(r.lb)} lb · ${fmt(r.cans)} cans</small>` : '<span class="muted">no meter data</span>'}</td>
+      <td class="num grp stack">${r.meterG ? `${fmt(r.meterG, 1)} <small>${fmt(r.lb)} lb · ${fmt(r.cans)} cans</small>` : '<span class="muted">no meter data</span>'}</td>
       <td class="num">${r.waste == null ? dash : `<span class="waste-v">${pct(r.waste)}</span>`}</td>
       <td class="num">${r.wasteBom == null ? dash : pct(r.wasteBom)}</td></tr>`
     + (r.enact ? r.enact.gassers.map(g => `<tr class="sub hidden" data-for="${i}"><td colspan="5">${esc(g.gasser)} · ${esc(g.item)}</td><td class="num grp"></td><td class="num">${fmt(g.mean, 2)} <small>${g.n} pcs · sd ${fmt(g.sd, 2)}</small></td><td class="num grp"></td><td class="num">${pct(r.bom ? (g.mean - r.bom) / r.bom * 100 : null)}</td><td class="num grp" colspan="3"></td></tr>`).join("") : "")).join("")
-    || `<tr><td colspan="12" class="empty">No gas weights for this line yet.</td></tr>`;
+    || `<tr><td colspan="12" class="empty">${filtered ? "No shifts match these filters." : "No gas weights yet."}</td></tr>`;
   // by item
   const by = {};
-  m.rows.filter(r => gwLine === "ALL" || r.line === gwLine).forEach(r => r.item.split(" + ").forEach(code => { const o = by[code] = by[code] || { code, shifts: 0, pN: 0, pS: 0, eN: 0, eS: 0, lb: 0, tgt: 0, bom: r.bom };
+  rows.forEach(r => r.item.split(" + ").filter(c => !F.q || hit(c)).forEach(code => { const o = by[code] = by[code] || { code, shifts: 0, pN: 0, pS: 0, eN: 0, eS: 0, lb: 0, tgt: 0, bom: r.bom };
     o.shifts++; if (r.paper) { o.pN += r.paper.n; o.pS += r.paper.sum; } if (r.enact) { o.eN += r.enact.n; o.eS += r.enact.sum; } if (r.waste != null && !r.item.includes("+")) { o.lb += r.lb; o.tgt += r.cans * r.measured / G_PER_LB; } }));
   $("#gw-items tbody").innerHTML = Object.values(by).sort((x, y) => y.shifts - x.shifts || x.code.localeCompare(y.code)).map(o => { const it = items.find(i => i.code === normCode(o.code)) || {}, p = o.pN ? o.pS / o.pN : null, e = o.eN ? o.eS / o.eN : null, mm = (o.pN + o.eN) ? (o.pS + o.eS) / (o.pN + o.eN) : null, bom = it.bom_gas_g_per_can ?? null;
-    return `<tr class="run${gwItem === o.code ? " selected" : ""}" data-item="${esc(o.code)}"><td><b>${esc(o.code)}</b>${it.description ? `<span class="sub">${esc(it.description)}</span>` : ""}</td><td>${esc(it.brand || "—")}</td><td class="nw">${p != null ? '<span class="src paper">Paper</span>' : ""}${e != null ? '<span class="src enact">Enact</span>' : ""}</td><td class="num">${o.shifts}</td>
+    return `<tr class="run${F.q && normCode(F.q) === o.code ? " selected" : ""}" data-item="${esc(o.code)}"><td><b>${esc(o.code)}</b>${it.description ? `<span class="sub">${esc(it.description)}</span>` : ""}</td><td>${esc(it.brand || "—")}</td><td class="nw">${p != null ? '<span class="src paper">Paper</span>' : ""}${e != null ? '<span class="src enact">Enact</span>' : ""}</td><td class="num">${o.shifts}</td>
       <td class="num grp">${p == null ? dash : `<b>${fmt(p, 2)}</b> <small>${fmt(o.pN)} rdg</small>`}</td><td class="num">${e == null ? dash : `<b>${fmt(e, 2)}</b> <small>${fmt(o.eN)} pcs</small>`}</td>
       <td class="num grp">${bom ? fmt(bom, 2) : '<span class="muted">no BOM</span>'}</td><td class="num ${bom && mm ? (mm > bom ? "over" : "under") : ""}">${bom && mm ? pct((mm - bom) / bom * 100) : "—"}</td>
-      <td class="num grp">${o.tgt ? `<span class="waste-v">${pct((o.lb - o.tgt) / o.tgt * 100)}</span>` : dash}</td></tr>`; }).join("") || `<tr><td colspan="9" class="empty">Nothing yet.</td></tr>`;
+      <td class="num grp">${o.tgt ? `<span class="waste-v">${pct((o.lb - o.tgt) / o.tgt * 100)}</span>` : dash}</td></tr>`; }).join("") || `<tr><td colspan="9" class="empty">${filtered ? "No items match these filters." : "Nothing yet."}</td></tr>`;
   $("#gw-ignored tbody").innerHTML = [["Paper readings with no time written", "Can't be placed in a shift", m.noTime], ["Paper readings under 2.3 g", "Below the cut-off (a mis-read)", m.low], ["Enact gas weights for other parts", "Not on the gas-blend Items list (for example “Regular Cream”)", m.ignored]]
     .map(([w, why, n]) => `<tr><td>${w}</td><td>${why}</td><td class="num">${fmt(n)}</td></tr>`).join("");
 }
 $("#gw-table tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr.has-g"); if (!tr) return; const open = tr.classList.toggle("open"); $$(`#gw-table tr.sub[data-for="${tr.dataset.i}"]`).forEach(x => x.classList.toggle("hidden", !open)); });
-$("#gw-items tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-item]"); if (!tr) return; gwItem = gwItem === tr.dataset.item ? null : tr.dataset.item; renderGasWeight(); $("#h-gw").scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" }); });
+$("#gw-items tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-item]"); if (!tr) return; const inp = $("#check-form").elements.item_code; inp.value = normCode(inp.value) === tr.dataset.item ? "" : tr.dataset.item; pageRender(); $("#h-gw").scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" }); });
 $("#gw-more").addEventListener("click", () => { gwAll = !gwAll; renderGasWeight(); });
-segBind("#gw-line", (v) => { gwLine = v; renderGasWeight(); });
 /* <<< gas-weight-compare */
 
 async function loadChecks() {
-  const [rows, enactRows] = await Promise.all([fetchAll("gas_weight_checks", "check_date", false), fetchAll("enact_kpi", "summary_date", false).catch(() => [])]);
-  const w = rows.map(r => Number(r.weight_g)).filter(x => !isNaN(x) && x > 0).sort((a, b) => a - b);
-  const mean = w.reduce((a, b) => a + b, 0) / (w.length || 1), md = w.length ? w[Math.floor(w.length / 2)] : null;
-  $("#checks-stats").innerHTML = `<span>Paper readings <b>${fmt(w.length)}</b></span><span>Mean <b>${fmt(mean, 2)} g</b></span><span>Median <b>${fmt(md, 2)} g</b></span><span>Min <b>${fmt(w[0], 1)} g</b></span><span>Max <b>${fmt(w[w.length - 1], 1)} g</b></span>`;
+  const [rows, enactRows] = await Promise.all([getTable("gas_weight_checks"), getTable("enact_kpi")]);
   // the shift window covering every gas weight, for metered gas and production
   const ds = [...rows.map(r => r.check_date), ...enactGasRows(enactRows).map(k => k.date)].filter(Boolean).sort();
   const shiftRows = ds.length ? await computeShiftRows(["C", "D"], ds[0], ds[ds.length - 1]) : [];
   gwModel = gasWeightModel(rows, enactRows, shiftRows); renderGasWeight();
-  const sel = $("#check-item"); if (sel) sel.innerHTML = `<option value="">— from production run —</option>` + items.filter(i => i.gas_blend !== false).map(i => `<option value="${i.code}">${i.code}${i.brand ? " — " + i.brand : ""}</option>`).join("");
-  $("#checks-export").onclick = () => csv(rows, "gas_weight_checks.csv");
+  // paperwork search: the item list to type against, the gassers on file, then the results
+  $("#item-list").innerHTML = items.filter(i => i.gas_blend !== false).map(i => `<option value="${esc(i.code)}" label="${esc([i.brand, i.description].filter(Boolean).join(" · "))}"></option>`).join("");
+  const gs = $("#check-form").elements.f_gasser, cur = gs.value;
+  gs.innerHTML = `<option value="">Any gasser</option>` + [...new Set(rows.map(c => c.gasser).filter(x => x != null))].sort((a, b) => a - b).map(g => `<option value="${g}"${String(g) === cur ? " selected" : ""}>Gasser ${g}</option>`).join("");
+  pwRows = rows; pageRender();
+  if (pwJump) { pwJump = false; requestAnimationFrame(() => $("#paperwork").scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" })); }
+  $("#checks-export").onclick = () => csv([...rows].sort((a, b) => String(b.check_date).localeCompare(String(a.check_date))), "gas_weight_checks.csv");
 }
-$("#check-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const row = formData(e.target);
-  if (row.weight_g == null && row.before_g != null && row.after_g != null) row.weight_g = Math.round((row.after_g - row.before_g) * 10) / 10;
-  const { error } = await sb.from("gas_weight_checks").insert(row);
-  if (error) return toast(error.message, true);
-  const keep = ["check_date", "gasser", "check_time", "initials", "operator", "can_size"].map(k => [k, e.target.elements[k].value]);
-  e.target.reset(); keep.forEach(([k, v]) => e.target.elements[k].value = v);
-  e.target.elements.head.value = Math.min(18, (Number(row.head) || 0) + 1); e.target.elements.before_g.focus();
-  loadChecks(); toast(`Saved head ${row.head}`);
-});
+// find paperwork: line, date and item first; gasser and time as secondary filters (adding checks here was removed)
+let pwMode = "find", pwLimit = 25, pwRows = [];
+function pwSetMode() { pwRender(); }
+$("#pw-toggle").addEventListener("click", (e) => { const open = $("#pw").classList.toggle("more"); e.currentTarget.setAttribute("aria-expanded", String(open)); e.currentTarget.textContent = open ? "Fewer filters" : "More filters"; });
+$("#pw-more").addEventListener("click", (e) => { const open = $("#pw").classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", String(open)); });
+function pwMatch() {
+  const F = pageFilters(), hit = itemMatcher(F.q);
+  return pwRows.filter(c => (!F.line || (c.line || "C") === F.line) && (!F.date || c.check_date === F.date) && (!F.gasser || String(c.gasser) === F.gasser) && (!F.shift || String(checkShift(c)?.shift) === F.shift) && (!F.q || hit(c.item_code)))
+    .sort((a, b) => String(b.check_date).localeCompare(String(a.check_date)) || String(b.check_time || "").localeCompare(String(a.check_time || "")) || (a.gasser || 0) - (b.gasser || 0) || (a.head || 0) - (b.head || 0));
+}
+function pwRender() {
+  if (pwMode !== "find") return;
+  const F = pageFilters(), filtered = !!(F.line || F.date || F.q || F.gasser || F.shift);
+  const m = pwMatch(), w = m.map(c => Number(c.weight_g)).filter(x => x >= 2.3), days = new Set(m.map(c => c.check_date)).size;
+  $("#pw-h").textContent = filtered ? "Paperwork found" : "Latest paperwork";
+  $("#pw-sum").innerHTML = m.length ? `<b>${fmt(m.length)}</b> reading${m.length === 1 ? "" : "s"} on ${days} day${days === 1 ? "" : "s"}${w.length ? ` · mean <b>${fmt(w.reduce((a, b) => a + b, 0) / w.length, 2)} g</b> · ${fmt(Math.min(...w), 1)}–${fmt(Math.max(...w), 1)} g` : ""}` : "No paperwork matches. Try fewer filters.";
+  const shown = m.slice(0, pwLimit);
+  $("#pw-table tbody").innerHTML = shown.map(c => { const s = checkShift(c), wt = Number(c.weight_g), low = wt > 0 && wt < 2.3;
+    return `<tr class="${low ? "muted" : ""}"><td class="date">${c.check_date}</td><td>${s ? s.shift : "—"}</td><td>${esc(c.check_time || "—")}</td><td><span class="ln ln-${c.line || "C"}">${c.line || "C"}</span></td><td class="num">${c.gasser ?? "—"}</td><td class="num">${c.head ?? "—"}</td><td><b>${esc(c.item_code || "—")}</b></td><td class="num"><b>${c.weight_g == null ? "—" : fmt(wt, 2)}</b>${low ? " <small>under 2.3 g</small>" : ""}</td><td class="num">${c.correction_g == null || c.correction_g === "" ? "—" : fmt(c.correction_g, 2)}</td></tr>`; }).join("")
+    || `<tr><td colspan="9" class="empty">Nothing to show.</td></tr>`;
+  const more = $("#pw-more-rows"); more.hidden = m.length <= pwLimit; more.textContent = `Show ${Math.min(50, m.length - pwLimit)} more of ${fmt(m.length - pwLimit)}`;
+}
+function pageRender() { pwLimit = 25; renderGasWeight(); pwRender(); $("#pw-clear").hidden = !Object.values(pageFilters()).some(Boolean); }
+let pwT; $("#check-form").addEventListener("input", () => { clearTimeout(pwT); pwT = setTimeout(pageRender, 150); });
+segBind("#pw-line", () => pageRender());
+$("#pw-more-rows").addEventListener("click", () => { pwLimit += 50; pwRender(); });
+$("#pw-clear").addEventListener("click", () => { const f = $("#check-form"); ["check_date", "item_code", "f_gasser", "f_shift"].forEach(k => f.elements[k].value = ""); segSet("#pw-line", "ALL"); pageRender(); });
+$("#check-form").addEventListener("submit", (e) => { e.preventDefault(); pageRender(); });
 
 /* ---------- dashboard ---------- */
 function interp(readings, t) {
@@ -530,15 +663,15 @@ $("#f-clear").addEventListener("click", () => { ["#f-item", "#f-wf", "#f-eff"].f
 $("#dash-table thead").addEventListener("click", (e) => { const th = e.target.closest("th[data-sort]"); if (!th) return;
   dashSort = th.dataset.sort === dashSort.key ? { key: dashSort.key, dir: -dashSort.dir } : { key: th.dataset.sort, dir: th.dataset.sort === "wastePct" || th.dataset.sort === "gPerCan" ? -1 : 1 }; renderDashTable(); });
 
-async function computeShiftRows(lines, from, to) {
-  const [runs, raw, fillerRaw, downRaw, checksRaw, enactRaw] = await Promise.all([
-    sb.from("production_runs").select("*").in("line", lines).gte("run_date", from).lte("run_date", to).order("run_date").order("shift").then(r => r.data || []),
-    fetchAll("gas_readings", "ts"),
-    fetchAll("filler_readings", "ts").catch(() => []),
-    fetchAll("filler_downtime", "ts").catch(() => []),
-    fetchAll("gas_weight_checks", "check_date").catch(() => []),
-    fetchAll("enact_kpi", "summary_date").catch(() => []),
-  ]);
+// per-shift totals for a range, worked out once and reused (switching C / D / Both or the filler speed costs nothing)
+function computeShiftRows(lines, from, to) {
+  const k = `${lines.join("")}|${from}|${to}`;
+  if (!shiftMemo[k]) shiftMemo[k] = computeShiftRowsRaw(lines, from, to).catch((e) => { delete shiftMemo[k]; throw e; });
+  return shiftMemo[k];
+}
+async function computeShiftRowsRaw(lines, from, to) {
+  const [allRuns, raw, fillerRaw, downRaw, checksRaw, enactRaw] = await Promise.all(["production_runs", "gas_readings", "filler_readings", "filler_downtime", "gas_weight_checks", "enact_kpi"].map(getTable));
+  const runs = allRuns.filter(r => lines.includes(r.line) && r.run_date >= from && r.run_date <= to).sort((a, b) => a.run_date.localeCompare(b.run_date) || a.shift - b.shift);
   // Enact per-shift means: key line|date|shift -> { g, n, item } (gas-blend items only)
   const enact = {};
   enactGasRows(enactRaw).forEach(k => {
@@ -665,28 +798,33 @@ function setupCarousel() {
   row.onscroll = () => { cancelAnimationFrame(row._raf); row._raf = requestAnimationFrame(mark); }; mark();
 }
 
-// navy ticker: the figures a supervisor checks first, looping
-function renderTicker(all, lines) {
-  const items = [];
-  lines.forEach(L => { const g = all.filter(r => r.line === L); if (!g.length) return; const lb = g.reduce((a, r) => a + r.totalLb, 0), t = g.reduce((a, r) => a + r.targetLb, 0), cans = g.reduce((a, r) => a + r.cans, 0);
-    items.push(`<a class="tk-item" href="#dash-shifts">${LINE_NAME[L]} <b class="${(lb - t) / t > .25 ? "warn" : ""}">${pct((lb - t) / t * 100)}</b><small>over target</small></a>`);
-    items.push(`<span class="tk-item">${LINE_NAME[L]} <b>${fmt(lb * G_PER_LB / cans, 1)} g</b><small>per can metered</small></span>`); });
-  const ranked = all.filter(r => r.wastePct != null && r.hours >= 7).sort((a, b) => a.wastePct - b.wastePct);
-  if (ranked.length) { const b = ranked[0], w = ranked[ranked.length - 1];
-    items.push(`<span class="tk-item">Best shift <b>${b.line} ${shortDate(b.date)} S${b.shift}</b><small>${pct(b.wastePct)} · ${esc(b.items)}</small></span>`);
-    items.push(`<span class="tk-item">Worst shift <b class="warn">${w.line} ${shortDate(w.date)} S${w.shift}</b><small>${pct(w.wastePct)} · ${esc(w.items)}</small></span>`); }
-  if (lastEnact) items.push(`<span class="tk-item">Latest Enact <b>${fmt(lastEnact.mean, 2)} g</b><small>${esc(lastEnact.item)} · ${esc(lastEnact.gasser)} · ${shortDate(lastEnact.date)} ${lastEnact.shift ? "S" + lastEnact.shift : "day"}</small></span>`);
-  if (lastReading) items.push(`<span class="tk-item">Meter read <b>${new Date(lastReading).toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</b><small>latest totalizer</small></span>`);
-  const mark = `<svg class="tk-mark" aria-hidden="true"><use href="#mark"/></svg>`;
-  const set = items.map(i => `<li>${i}</li><li>${mark}</li>`).join("");
-  const tk = $("#ticker"); tk.classList.toggle("static", items.length < 2);
-  tk.querySelector(".tk-track").innerHTML = items.length ? `<ul class="tk-set">${set}</ul><ul class="tk-set" aria-hidden="true">${set.replace(/<a /g, '<a tabindex="-1" ')}</ul>` : `<ul class="tk-set"><li><span class="tk-item">No shifts with meter data in this range.</span></li></ul>`;
+// navy ticker: gas over target by month for each line, newest first; tap a month to show it on the dashboard
+function renderTicker(rows) {
+  const by = {};
+  rows.forEach(r => { const m = r.date.slice(0, 7), o = by[m] = by[m] || {}, x = o[r.line] = o[r.line] || { lb: 0, tgt: 0, n: 0 }; x.lb += r.totalLb; x.tgt += r.targetLb; x.n++; });
+  const months = Object.keys(by).sort().reverse(), cur = `${$("#dash-from").value}|${$("#dash-to").value}`;
+  const item = (m, tab) => { const [y, mo] = m.split("-").map(Number), first = `${m}-01`, last = localDate(new Date(y, mo, 0)), name = new Date(y, mo - 1, 15).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    const parts = ["C", "D"].filter(L => by[m][L]).map(L => { const x = by[m][L], w = (x.lb - x.tgt) / x.tgt * 100; return `<span class="tk-l">${LINE_NAME[L]}</span><b class="${w > 25 ? "warn" : ""}">${pct(w)}</b>`; }).join(`<span class="tk-sep">·</span>`);
+    return `<a class="tk-item tk-month${cur === first + "|" + last ? " on" : ""}" href="#" data-from="${first}" data-to="${last}" data-name="${name}"${tab ? "" : ' tabindex="-1"'}><span class="tk-m">${name}</span>${parts}</a>`; };
+  const mark = `<svg class="tk-mark" aria-hidden="true"><use href="#mark"/></svg>`, label = `<span class="tk-item tk-k">Gas over target</span>`;
+  // always moving, like a stock ticker
+  const tk = $("#ticker"); tk.classList.toggle("static", !months.length);
+  const set = [label, ...months.map(m => item(m, true))].map(i => `<li>${i}</li>`).join(`<li>${mark}</li>`) + `<li>${mark}</li>`;
+  tk.querySelector(".tk-track").innerHTML = !months.length ? `<ul class="tk-set"><li><span class="tk-item">No months with meter data and production yet.</span></li></ul>` : `<ul class="tk-set">${set}</ul>`;
+  if (months.length) requestAnimationFrame(() => marquee(tk, 55));
 }
+$("#ticker").addEventListener("click", async (e) => {
+  const a = e.target.closest("a.tk-month"); if (!a) return; e.preventDefault();
+  const on = a.classList.contains("on");
+  if (on) { $("#dash-from").value = await firstRunDate() || ""; $("#dash-to").value = localDate(new Date()); } else { $("#dash-from").value = a.dataset.from; $("#dash-to").value = a.dataset.to; }
+  await loadDashboard(); toast(on ? "Showing every month" : `Showing ${a.dataset.name}`);
+});
 
 async function loadDashboard() {
   const from = $("#dash-from"), to = $("#dash-to");
   $("#chart-waste").closest(".chart-wrap").classList.add("loading");
-  if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || localDate(new Date(Date.now() - 30 * 864e5)); to.value = localDate(new Date()); }
+  const first = await firstRunDate();
+  if (!from.value) { from.value = first || localDate(new Date(Date.now() - 30 * 864e5)); to.value = localDate(new Date()); }
   const lineSel = segVal("#dash-line"); const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
   // tiles and ticker always show both lines; the chart and table follow the C / D / Both switch
   const both = await computeShiftRows(["C", "D"], from.value, to.value);
@@ -695,15 +833,12 @@ async function loadDashboard() {
   const have = out.filter(r => r.totalLb != null && r.targetLb);
   const haveBoth = both.filter(r => r.totalLb != null && r.targetLb && !r.nonGasOnly);
   renderLineCards(haveBoth, from.value, to.value);
-  renderTicker(haveBoth, ["C", "D"]);
-
-  const summ = lines.map(L => { const h = have.filter(r => r.line === L); if (!h.length) return null;
-    const T = h.reduce((a, r) => ({ lb: a.lb + r.totalLb, tgt: a.tgt + r.targetLb, cans: a.cans + r.cans, cases: a.cases + r.cases }), { lb: 0, tgt: 0, cans: 0, cases: 0 });
-    return `<b>${LINE_NAME[L]}</b>: ${h.length} shifts, ${fmt(T.cases)} cases, ${fmt(T.lb)} lb metered against ${fmt(T.tgt)} lb target, <b>${pct((T.lb - T.tgt) / T.tgt * 100)}</b>.`; }).filter(Boolean);
-  $("#dash-summary").innerHTML = summ.length ? summ.join("<br>") : "No shifts with both production and meter data in this range.";
+  // the month ticker always covers every month, whatever range is picked
+  const allMonths = first ? await computeShiftRows(["C", "D"], first, localDate(new Date())) : [];
+  renderTicker(allMonths.filter(r => r.totalLb != null && r.targetLb && !r.nonGasOnly));
 
   // ---- waste by shift: one slot per date + shift, C and D side by side; filler speed in its own panel below (no second y-axis)
-  const showCpm = $("#dash-cpm").getAttribute("aria-pressed") === "true";
+  const showCpm = $("#dash-cpm").checked;
   const wrap = $("#chart-waste").closest(".chart-wrap"); wrap.classList.toggle("with-cpm", showCpm); wrap.classList.toggle("empty", !have.length);
   const cats = [...new Set(have.map(r => `${r.date}|${r.shift}`))].sort();
   const byKey = {}; have.forEach(r => byKey[`${r.line}|${r.date}|${r.shift}`] = r);
@@ -712,7 +847,7 @@ async function loadDashboard() {
   const bars = lines.map((L, li) => ({ id: "w" + L, name: LINE_NAME[L], type: "bar", xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 18, barGap: "12%", barCategoryGap: "28%",
     data: cats.map(k => { const r = byKey[`${L}|${k}`]; return r ? { value: Math.round(r.wastePct * 10) / 10, r } : null; }),
     itemStyle: { color: COL[L], borderRadius: 4 }, emphasis: { focus: "series", itemStyle: { color: COL[L] } }, blur: { itemStyle: { opacity: .25 } },
-    universalTransition: { enabled: true }, animationDelay: (i) => i * 10 + li * 60,
+    universalTransition: { enabled: true }, animationDuration: 600, animationDelay: (i) => Math.min(i * 4, 240) + li * 40,
     markLine: li === 0 ? { silent: true, symbol: "none", lineStyle: { color: COL.ink, width: 1, type: "solid", opacity: .55 }, label: { show: true, position: "insideEndTop", formatter: "on target", color: COL.ink2, fontFamily: FONT, fontSize: 11 }, data: [{ yAxis: 0 }] } : undefined }));
   const cpm = !showCpm ? [] : lines.map(L => ({ id: "c" + L, name: `${LINE_NAME[L]} filler`, type: "line", xAxisIndex: 1, yAxisIndex: 1, connectNulls: true, symbol: "circle", symbolSize: 6, showSymbol: true,
     data: cats.map(k => { const r = byKey[`${L}|${k}`]; return r && r.avgCpm != null ? { value: Math.round(r.avgCpm), r } : null; }),
@@ -740,7 +875,7 @@ async function loadDashboard() {
 }
 segBind("#dash-line", () => loadDashboard());
 ["#dash-from", "#dash-to"].forEach(id => $(id).addEventListener("change", loadDashboard));
-$("#dash-cpm").addEventListener("click", (e) => { const b = e.currentTarget; b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true")); loadDashboard(); });
+$("#dash-cpm").addEventListener("change", () => loadDashboard());
 $("#dash-more").addEventListener("click", (e) => { const open = $("#dash-ctl").classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", String(open)); });
 $("#an-more").addEventListener("click", (e) => { const open = $("#an-ctl").classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", String(open)); });
 
@@ -762,23 +897,31 @@ const med = (arr) => { const v = arr.filter(x => x != null && !isNaN(x)).sort((a
 
 async function loadAnalysis() {
   const from = $("#an-from"), to = $("#an-to");
-  if (!from.value) { const { data } = await sb.from("production_runs").select("run_date").order("run_date").limit(1); from.value = data?.[0]?.run_date || "2026-08-01"; to.value = localDate(new Date()); }
+  if (!from.value) { from.value = await firstRunDate() || "2026-08-01"; to.value = localDate(new Date()); }
   $$("#page-analysis .chart-wrap").forEach(w => { if (!charts[w.querySelector(".chart")?.id]) w.classList.add("loading"); });
   const lineSel = segVal("#an-line"); const lines = lineSel === "ALL" ? ["C", "D"] : [lineSel];
-  const [allShifts, allRuns, rawR, rawF, rawEvents] = await Promise.all([computeShiftRows(lines, from.value, to.value), fetchAll("production_runs", "run_date"), fetchAll("gas_readings", "ts"), fetchAll("filler_readings", "ts").catch(() => []), fetchAll("gas_events", "start_ts").catch(() => [])]);
+  const [allShifts, allRuns, rawR, rawF, rawEvents] = await Promise.all([computeShiftRows(lines, from.value, to.value), getTable("production_runs"), getTable("gas_readings"), getTable("filler_readings"), getTable("gas_events")]);
   const all = allShifts.filter(r => r.totalLb != null && r.targetLb && !r.nonGasOnly);
   const readingsBy = {}, fillerBy = {};
   rawR.forEach(r => (readingsBy[r.line] = readingsBy[r.line] || []).push({ t: new Date(r.ts).getTime(), n2o: Number(r.n2o_scf), n2: Number(r.n2_scf) }));
   rawF.forEach(r => (fillerBy[r.line] = fillerBy[r.line] || []).push({ t: new Date(r.ts).getTime(), cpm: Number(r.cpm) }));
-  const itemSel = $("#an-item"); const cur = itemSel.value;
+  // item filter: type a code, a brand or words from the description, or pick from the list
   const codes = [...new Set(all.flatMap(r => r.itemRows.filter(x => !x.nonGas).map(x => x.code)))].sort();
-  const brandOf = (c) => items.find(i => i.code === c)?.brand || "Other";
+  const brandOf = (c) => items.find(i => i.code === c)?.brand || "Other", descOf = (c) => items.find(i => i.code === c)?.description || "";
   const brands = [...new Set(codes.map(brandOf))].sort();
-  itemSel.innerHTML = `<option value="">All items</option>` + brands.map(b => `<optgroup label="${b}"><option value="brand:${b}"${cur === "brand:" + b ? " selected" : ""}>All ${b}</option>` + codes.filter(c => brandOf(c) === b).map(c => `<option value="${c}"${c === cur ? " selected" : ""}>${c} — ${(items.find(i => i.code === c)?.description || "").replace(/^(Silk|Dunkin|International Delight|McDonald's) /, "")}</option>`).join("") + `</optgroup>`).join("");
-  const rows = !cur ? all : cur.startsWith("brand:") ? all.filter(r => r.itemRows.some(x => brandOf(x.code) === cur.slice(6))) : all.filter(r => r.itemRows.some(x => x.code === cur));
+  $("#an-item-list").innerHTML = brands.map(b => `<option value="All ${esc(b)}"></option>` + codes.filter(c => brandOf(c) === b).map(c => `<option value="${c}" label="${esc(b)} · ${esc(descOf(c).replace(/^(Silk|Dunkin|International Delight|McDonald's) /, ""))}"></option>`).join("")).join("");
+  const raw = $("#an-item").value.trim(), q = raw.toLowerCase(), typed = normCode(raw.split(/\s/)[0]);
+  let pick = null, pickLabel = "";   // null = all items, otherwise the set of codes shown
+  if (raw) {
+    const b = brands.find(x => q === x.toLowerCase() || q === `all ${x.toLowerCase()}`); if (b && !codes.includes(typed)) pickLabel = `All ${b}`;
+    pick = codes.includes(typed) ? new Set([typed]) : b ? new Set(codes.filter(c => brandOf(c) === b)) : new Set(codes.filter(c => `${c} ${brandOf(c)} ${descOf(c)}`.toLowerCase().includes(q)));
+    if (!pick.size) toast(`No item matches "${raw}"`);
+  }
+  const rows = !pick ? all : all.filter(r => r.itemRows.some(x => pick.has(x.code)));
   const full = rows.filter(r => r.hours >= 7.5);
   const gasTot = rows.reduce((x, r) => x + r.totalLb, 0);
-  $("#an-count").textContent = `${rows.length} shifts, ${from.value} to ${to.value}`;
+  const nd = (d, y) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: y ? "numeric" : undefined });
+  $("#an-count").textContent = `${fmt(rows.length)} shift${rows.length === 1 ? "" : "s"} on ${lines.length > 1 ? "C and D Line" : LINE_NAME[lines[0]]}, ${nd(from.value, from.value.slice(0, 4) !== to.value.slice(0, 4))} – ${nd(to.value, true)}${pick ? ` · ${pick.size === 1 ? [...pick][0] : pickLabel ? `${pickLabel} (${pick.size} items)` : `${pick.size} items matching "${raw}"`}` : ""}`;
   const colors = { C: COL.C, D: COL.D };
   const wasteOf = (arr) => { const lb = arr.reduce((a, r) => a + r.totalLb, 0), t = arr.reduce((a, r) => a + r.targetLb, 0); return t ? (lb - t) / t * 100 : null; };
 
@@ -935,7 +1078,7 @@ async function loadAnalysis() {
   const extraTot = runStats.reduce((x, s) => x + Math.max(0, s.extra), 0);
   $("#an-start-text").innerHTML = runStats.length ? `The first shift of a run is consistently the worst: median <b>${fmt(med(firsts.map(r => r.wastePct)))}% over target</b> against <b>${fmt(med(rests.map(r => r.wastePct)))}%</b> for the shifts that follow. The reason is visible in the filler — first shifts average ${fmt(med(firsts.map(r => r.avgCpm)))} cpm versus ${fmt(med(rests.map(r => r.avgCpm)))} cpm later — so the same fixed bleed is spread over far fewer cans while the line is being brought up. In ${runStats.length} runs that cost about <b>${fmt(extraTot)} lb</b> more than if the first shift had run at the rest of the run's rate.` : "Need runs of 2+ shifts to measure.";
   $("#an-start-kpis").innerHTML = runStats.length ? `<div class="kpi mini-kpi"><h3>First shift of a run</h3><div class="big">${fmt(med(firsts.map(r => r.wastePct)))}%<small>median waste · ${firsts.length} shifts · ${fmt(med(firsts.map(r => r.avgCpm)))} cpm · ${fmt(med(firsts.map(r => r.eff)))}% efficiency</small></div></div><div class="kpi mini-kpi"><h3>Later shifts</h3><div class="big">${fmt(med(rests.map(r => r.wastePct)))}%<small>median waste · ${rests.length} shifts · ${fmt(med(rests.map(r => r.avgCpm)))} cpm · ${fmt(med(rests.map(r => r.eff)))}% efficiency</small></div></div>` : "";
-  $("#an-start-table tbody").innerHTML = runStats.map(s => `<tr><td class="date">${s.label}</td><td>${s.rn.line}</td><td>${s.items}</td><td class="num waste">${fmt(s.wF)}%</td><td class="num">${fmt(s.wR)}%</td><td class="num">${s.cpmF == null ? "—" : fmt(s.cpmF) + " cpm"}</td><td class="num">${s.cpmR == null ? "—" : fmt(s.cpmR) + " cpm"}</td><td class="num">${s.extra > 0 ? fmt(s.extra) + " lb" : "—"}</td></tr>`).join("");
+  $("#an-start-table tbody").innerHTML = runStats.map(s => `<tr><td class="date">${new Date(s.first.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</td><td><span class="ln ln-${s.rn.line}">${s.rn.line}</span></td><td class="items">${esc(s.items)}</td><td class="num grp waste">${pct(s.wF)}</td><td class="num">${pct(s.wR)}</td><td class="num grp">${s.cpmF == null ? "—" : fmt(s.cpmF) + " <small>cpm</small>"}</td><td class="num">${s.cpmR == null ? "—" : fmt(s.cpmR) + " <small>cpm</small>"}</td><td class="num grp">${s.extra > 0 ? fmt(s.extra) + " <small>lb</small>" : "—"}</td></tr>`).join("");
   drawChart("an-chart-start", "#an-chart-start", chartBase({
     legend: { ...LEG, data: ["First shift of the run", "Rest of the run"] },
     grid: { left: 52, right: 16, top: 42, bottom: runStats.length > 18 ? 92 : runStats.length > 10 ? 64 : 36 },
@@ -965,7 +1108,7 @@ async function loadAnalysis() {
   $("#an-idle-text").innerHTML = idleRows.length ? `<b>${fmt(openTot)} lb</b> across ${open.length} unexplained shift${open.length === 1 ? "" : "s"}. A further ${fmt(covTot)} lb in ${idleRows.length - open.length} shifts is already explained by confirmed events (greyed).` : "";
   revealNow();
 }
-$("#an-item").addEventListener("change", loadAnalysis);
+let anItemT; $("#an-item").addEventListener("input", () => { clearTimeout(anItemT); anItemT = setTimeout(loadAnalysis, 450); });
 segBind("#an-line", () => loadAnalysis());
 ["#an-from", "#an-to"].forEach(id => $(id).addEventListener("change", loadAnalysis));
 // section index: sticky on the left; on a phone it is a sheet opened from the floating pill
