@@ -67,12 +67,12 @@ async function fetchAll(table, order, asc = true) {
 }
 // each table is fetched once and shared by every page; Refresh (or a save) drops the cache
 const ORDER = { production_runs: "run_date", gas_readings: "ts", filler_readings: "ts", filler_downtime: "ts", gas_weight_checks: "check_date", enact_kpi: "summary_date", gas_events: "start_ts" };
-const tableCache = {}; let shiftMemo = {}, pulledAt = null;
+const tableCache = {}; let shiftMemo = {}, fastCache = {}, pulledAt = null;
 function getTable(t) {
   if (!tableCache[t]) tableCache[t] = fetchAll(t, ORDER[t]).then(rows => { pulledAt = new Date(); return rows; }).catch(() => { delete tableCache[t]; return []; });
   return tableCache[t];
 }
-function invalidate(...tables) { (tables.length ? tables : Object.keys(tableCache)).forEach(t => delete tableCache[t]); shiftMemo = {}; }
+function invalidate(...tables) { (tables.length ? tables : Object.keys(tableCache)).forEach(t => delete tableCache[t]); shiftMemo = {}; fastCache = {}; }
 async function firstRunDate() { const runs = await getTable("production_runs"); return runs.reduce((m, r) => !m || r.run_date < m ? r.run_date : m, null); }
 function localDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 const shortDate = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
@@ -132,16 +132,31 @@ async function showApp() {
 // freshness strip above the header: when each source last had data, and when this page pulled it
 const fmtDay = (v) => { if (!v) return "—"; const x = v instanceof Date ? v : new Date(String(v).length === 10 ? v + "T12:00:00" : v); return `${x.toLocaleDateString("en-US", { month: "short" })}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()}`; };
 const fmtClock = (d) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-async function renderFresh() {
-  const [enact, readings, runs, checks] = await Promise.all(["enact_kpi", "gas_readings", "production_runs", "gas_weight_checks"].map(getTable));
-  const maxOf = (arr, k) => arr.reduce((m, r) => r[k] && String(r[k]) > m ? String(r[k]) : m, "");
-  const pulled = PREVIEW && window.GBR_SNAPSHOT_AT ? new Date(window.GBR_SNAPSHOT_AT) : (pulledAt || new Date());
-  const parts = [["Enact", fmtDay(maxOf(enact, "summary_date"))], ["Paper check", fmtDay(maxOf(checks, "check_date"))], ["Meter", fmtDay(maxOf(readings, "ts"))], ["Production run", fmtDay(maxOf(runs, "run_date"))]];
-  $("#fresh-pv").innerHTML = PREVIEW ? `<span class="fresh-pv" title="Design preview: a snapshot of the data, saving is off">Preview</span>` : "";
-  $("#fresh-items .mq-track").innerHTML = `<div class="fresh-set"><span class="fk">Last collected data</span>` + parts.map(([k, v]) => `<span class="fi"><i>${k}</i><b>${v}</b></span>`).join("")
-    + `<span class="fi fi-pull"><i>${PREVIEW ? "Snapshot" : "Pulled"}</i><b>${fmtDay(pulled)} ${fmtClock(pulled)}</b></span></div>`;
-  marquee($("#fresh-items"), 38);
+async function latestOf(table, col) {
+  try { const { data, error } = await sb.from(table).select(col).order(col, { ascending: false, nullsFirst: false }).limit(1); return error ? null : (data && data[0] ? data[0][col] : null); } catch (e) { return null; }
 }
+let freshTimer = null, freshPaused = false;
+async function renderFresh() {
+  const [enact, check, meter, run] = await Promise.all([latestOf("enact_kpi", "summary_date"), latestOf("gas_weight_checks", "check_date"), latestOf("gas_readings", "ts"), latestOf("production_runs", "run_date")]);
+  if (!PREVIEW) pulledAt = new Date();
+  const pulled = PREVIEW && window.GBR_SNAPSHOT_AT ? new Date(window.GBR_SNAPSHOT_AT) : pulledAt;
+  const parts = [["Enact", fmtDay(enact)], ["Paper check", fmtDay(check)], ["Meter", fmtDay(meter)], ["Production run", fmtDay(run)], [PREVIEW ? "Snapshot taken" : "Data pulled", `${fmtDay(pulled)} ${fmtClock(pulled)}`]];
+  $("#fresh-pv").innerHTML = PREVIEW ? `<span class="fresh-pv" title="Design preview: a snapshot of the data, saving is off">Preview</span>` : "";
+  $("#fresh-items").innerHTML = parts.map(([k, v], i) => `<span class="fi${i === 0 ? " on" : ""}"><i>${k}</i><b>${v}</b></span>`).join("");
+  rotateFresh();
+}
+// one item at a time: it slides out to the left and the next slides in; hovering the strip holds the current one
+function rotateFresh() {
+  clearInterval(freshTimer); let i = 0;
+  freshTimer = setInterval(() => {
+    const els = $("#fresh-items").children; if (freshPaused || document.hidden || els.length < 2) return;
+    const cur = els[i % els.length]; i = (i + 1) % els.length; const nxt = els[i];
+    cur.classList.remove("on"); cur.classList.add("out"); nxt.classList.remove("out"); nxt.classList.add("on");
+    setTimeout(() => cur.classList.remove("out"), 700);
+  }, 3200);
+}
+$("#fresh").addEventListener("mouseenter", () => { freshPaused = true; });
+$("#fresh").addEventListener("mouseleave", () => { freshPaused = false; });
 // a ticker that never runs out: the first set is repeated until it is wider than the strip, then copied once so the loop is seamless
 function marquee(view, speed = 50) {
   const track = view && view.querySelector(".mq-track"), base = track && track.firstElementChild; if (!base || !view.offsetParent) return;
@@ -153,7 +168,7 @@ function marquee(view, speed = 50) {
   track.appendChild(quiet(base.cloneNode(true)));
   track.style.setProperty("--mq-dur", `${Math.max(14, Math.round(base.scrollWidth / speed))}s`);
 }
-let _mq; window.addEventListener("resize", () => { clearTimeout(_mq); _mq = setTimeout(() => { marquee($("#fresh-items"), 38); if (currentPage === "dashboard") marquee($("#ticker"), 55); }, 200); });
+let _mq; window.addEventListener("resize", () => { clearTimeout(_mq); _mq = setTimeout(() => { if (currentPage === "dashboard") marquee($("#ticker"), 55); }, 200); });
 // data pulls itself: when the page comes back into view after 10 minutes, and every 10 minutes while it stays open
 const AUTO_PULL_MS = 10 * 60e3; let autoPulling = false;
 async function autoPull() {
@@ -303,48 +318,74 @@ $("#items-table thead").addEventListener("click", (e) => { const th = e.target.c
 $("#items-export").addEventListener("click", () => csv(items.map(i => { const c = itemCalc(i); const g = role() === "guest";   // guests don't get description, cans/case or lb/case
     return { code: i.code, brand: i.brand, ...(g ? {} : { description: i.description, cans_per_case: i.cans_per_case, n2o_lb_per_case: i.n2o_lb_per_case, n2_lb_per_case: i.n2_lb_per_case }), n2o_g_per_can: c.n2oG, n2_g_per_can: c.n2G, total_g_per_can: c.totG, n2o_ratio_vol: i.n2o_ratio_vol, bom_split_mass: c.massR, target_gas_g: i.target_gas_g, notes: i.notes }; }), "items.csv"));
 
-/* ---------- production runs: months of days as dots, and every run in them ---------- */
-let calSel = null, calN = 3, calBack = 0;   // selected day, months shown, months paged back (dots: C navy, D sky)
-const DAY_MS = 864e5;
+/* ---------- production runs: a grid of days (Claude Code style), and every run in them ---------- */
+let calSel = null, calN = 3, calBack = 0;   // selected day, months shown, months paged back (squares: C navy, D sky)
+const DAY_MS = 864e5, CAL_C = "#031b27", CAL_D = "#8ae5ff";
+const calDirty = () => !!calSel || calN !== 3 || calBack !== 0;
 async function loadRuns() {
   renderItems();
   const runs = await getTable("production_runs");
   const byDay = {}; runs.forEach(r => (byDay[r.run_date] = byDay[r.run_date] || []).push(r));
   const today = new Date(); today.setHours(12, 0, 0, 0); const todayS = localDate(today);
   const endM = new Date(today.getFullYear(), today.getMonth() - calBack, 1);
-  const months = []; for (let i = calN - 1; i >= 0; i--) months.push(new Date(endM.getFullYear(), endM.getMonth() - i, 1, 12));
-  const from = localDate(months[0]), to = localDate(new Date(endM.getFullYear(), endM.getMonth() + 1, 0, 12));
+  const start = new Date(endM.getFullYear(), endM.getMonth() - (calN - 1), 1, 12), monthEnd = new Date(endM.getFullYear(), endM.getMonth() + 1, 0, 12);
+  const end = monthEnd > today ? today : monthEnd;
+  const from = localDate(start), to = localDate(monthEnd);
   const linesOn = (d) => [...new Set((byDay[d] || []).map(r => r.line))].sort().join("");
-  let nDays = 0, nC = 0, nD = 0, nB = 0;
-  // grid like Claude Code's: weeks across, Monday to Sunday down, one small dot per day; a line between months
-  const block = (m) => {
-    const y = m.getFullYear(), mo = m.getMonth(), days = new Date(y, mo + 1, 0).getDate(), off = (new Date(y, mo, 1).getDay() + 6) % 7, cols = Math.ceil((off + days) / 7); let runDays = 0;
-    const cells = [];
-    for (let i = 0; i < cols * 7; i++) {
-      const d = i - off + 1; if (d < 1 || d > days) { cells.push(`<span class="cd pad"></span>`); continue; }
-      const ds = localDate(new Date(y, mo, d, 12)), L = linesOn(ds), cls = L === "CD" ? "cd2" : L === "C" ? "c" : L === "D" ? "d" : "";
-      const extra = `${ds === todayS ? " today" : ""}${ds === calSel ? " sel" : ""}${ds > todayS ? " fut" : ""}`;
-      if (L) { runDays++; nDays++; if (L === "CD") nB++; if (L.includes("C")) nC++; if (L.includes("D")) nD++; }
-      const label = new Date(y, mo, d, 12).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-      cells.push(L ? `<button type="button" class="cd ${cls}${extra}" data-d="${ds}" aria-label="${label}: ${L === "CD" ? "C Line and D Line" : LINE_NAME[L]}"></button>` : `<span class="cd${extra}" data-d="${ds}"></span>`);
-    }
-    const name = m.toLocaleDateString("en-US", { month: "short" }) + (mo === 0 || m === months[0] ? ` ${y}` : "");
-    return `<div class="cm2"><div class="cm2-h">${name}${runDays ? `<small>${runDays}</small>` : ""}</div><div class="cm2-g" style="--cols:${cols}">${cells.join("")}</div></div>`;
-  };
-  const dayCol = `<div class="cm2 cm2-days" aria-hidden="true"><div class="cm2-h">&nbsp;</div><div class="cm2-g" style="--cols:1">${["Mon", "", "Wed", "", "Fri", "", ""].map(t => `<span>${t}</span>`).join("")}</div></div>`;
-  const cal = $("#cal"); cal.className = `cal-strip n${calN}`; cal.innerHTML = dayCol + months.map(block).join("");
-  cal.closest(".cal-body").classList.toggle("wide", calN === 12);
-  const span = `${months[0].toLocaleDateString("en-US", { month: "short", year: months[0].getFullYear() !== endM.getFullYear() ? "numeric" : undefined })} – ${endM.toLocaleDateString("en-US", { month: "short", year: "numeric" })}`;
+  const g = heatGrid({ start, end, todayS, linesOn, isSel: (ds) => ds === calSel });
+  const span = `${start.toLocaleDateString("en-US", { month: "short", year: start.getFullYear() !== endM.getFullYear() ? "numeric" : undefined })} – ${endM.toLocaleDateString("en-US", { month: "short", year: "numeric" })}`;
   $("#cal-title").textContent = `Days with production, ${span}`;
-  $("#cal-sum").innerHTML = `<span class="cs-big"><b>${nDays}</b> days with runs</span><span><i class="cd c"></i>C Line <b>${nC}</b></span><span><i class="cd d"></i>D Line <b>${nD}</b></span><span><i class="cd cd2"></i>Both lines <b>${nB}</b></span><span class="muted"><i class="cd"></i>No run</span>`;
-  const sc = cal.parentElement; sc.scrollLeft = sc.scrollWidth;
+  $("#cal-sum").innerHTML = `<span class="cs-big"><b>${g.nDays}</b> days with runs</span><span><i class="hk c"></i>C Line <b>${g.nC}</b></span><span><i class="hk d"></i>D Line <b>${g.nD}</b></span><span><i class="hk cd2"></i>Both lines <b>${g.nB}</b></span><span class="muted"><i class="hk"></i>No run</span>`;
+  heatSize();
   $("#cal-next").disabled = calBack === 0;
   if (calSel && (calSel < from || calSel > to)) calSel = null;
+  $("#cal-reset").disabled = !calDirty();
   renderRunList(runs, byDay, from, to);
   $("#runs-export").onclick = () => csv([...runs].sort((x, y) => y.run_date.localeCompare(x.run_date) || x.line.localeCompare(y.line) || x.shift - y.shift).map(r => ({ line: r.line, run_date: r.run_date, shift: r.shift, item_code: r.item_code, cases: r.cases, cans_per_case: r.cans_per_case, notes: r.notes })), "production_runs.csv");
-  cal.onclick = (e) => { const b = e.target.closest("button.cd"); if (!b) return; calSel = calSel === b.dataset.d ? null : b.dataset.d; $$("#cal .cd.sel").forEach(x => x.classList.remove("sel")); if (calSel) b.classList.add("sel"); renderRunList(runs, byDay, from, to, true); };
-  calTip(byDay);
+  const cal = $("#cal");
+  cal.onclick = (e) => { const b = e.target.closest("button.hc"); if (!b) return; calSel = calSel === b.dataset.d ? null : b.dataset.d; $$("#cal .hc.sel").forEach(x => x.classList.remove("sel")); if (calSel) b.classList.add("sel"); $("#cal-reset").disabled = !calDirty(); renderRunList(runs, byDay, from, to, true); };
+  gridTip($("#cal-card"), cal, (d) => { const rs = byDay[d] || [], by = {}; rs.forEach(r => (by[r.line] = by[r.line] || new Set()).add(r.shift));
+    return rs.length ? Object.keys(by).sort().map(L => `<span>${dot(L === "C" ? CAL_C : CAL_D)}${LINE_NAME[L]} · shift ${[...by[L]].sort().join(", ")}</span>`).join("") : `<span class="muted">No run</span>`; });
 }
+// Claude Code style grid: one column per week (Monday on top), a rounded square per day in range, month names along
+// the top. Squares are navy for C Line, sky for D Line, split top and bottom when both ran.
+function heatGrid({ start, end, todayS, linesOn, isSel }) {
+  const el = $("#cal"), inner = $("#cal-in"), monthsEl = $("#cal-months");
+  const s0 = new Date(start); s0.setDate(s0.getDate() - (s0.getDay() + 6) % 7);
+  const cols = Math.floor(Math.round((end - s0) / DAY_MS) / 7) + 1;
+  let nDays = 0, nC = 0, nD = 0, nB = 0;
+  const cells = [];
+  for (let c = 0; c < cols; c++) for (let r = 0; r < 7; r++) {
+    const d = new Date(s0.getFullYear(), s0.getMonth(), s0.getDate() + c * 7 + r, 12), ds = localDate(d);
+    if (d < start || d > end) { cells.push(`<span class="hc void"></span>`); continue; }
+    const L = linesOn(ds), cls = L === "CD" ? " cd2" : L === "C" ? " c" : L === "D" ? " d" : "";
+    if (L) { nDays++; if (L === "CD") nB++; if (L.includes("C")) nC++; if (L.includes("D")) nD++; }
+    const extra = `${ds === todayS ? " today" : ""}${isSel(ds) ? " sel" : ""}`;
+    const label = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    cells.push(L ? `<button type="button" class="hc${cls}${extra}" data-d="${ds}" aria-label="${label}: ${L === "CD" ? "C Line and D Line" : LINE_NAME[L]}"></button>` : `<span class="hc${extra}" data-d="${ds}"></span>`);
+  }
+  el.innerHTML = cells.join("");
+  // month names over the week column each month starts in; a name too close to the next one is dropped
+  const marks = []; for (let m = new Date(start.getFullYear(), start.getMonth(), 1, 12); m <= end; m = new Date(m.getFullYear(), m.getMonth() + 1, 1, 12)) { const f = m < start ? start : m; marks.push({ c: Math.floor(Math.round((f - s0) / DAY_MS) / 7), t: m.toLocaleDateString("en-US", { month: "short" }) + (m.getMonth() === 0 ? ` ${m.getFullYear()}` : "") }); }
+  const keep = marks.filter((m, i) => !marks[i + 1] || marks[i + 1].c - m.c >= 3 || i === marks.length - 1);
+  monthsEl.innerHTML = keep.map(m => `<span style="grid-column:${m.c + 1}">${m.t}</span>`).join("");
+  inner.style.setProperty("--cols", cols);
+  return { nDays, nC, nD, nB };
+}
+// square size follows the room in the card: about 17 px squares with 3 px gaps for a year on desktop, larger for fewer
+// months (up to 26 px), never under 12 px (a phone scrolls sideways instead, newest week in view). The counts sit beside
+// the grid when there's room for them, otherwise underneath in a row.
+function heatSize() {
+  const inner = $("#cal-in"), body = $("#cal-body"); if (!inner || !body.offsetParent) return;
+  const cols = Number(inner.style.getPropertyValue("--cols")) || 14, room = body.clientWidth - 8, SIDE = 230;
+  let pitch = Math.max(14, Math.min(30, Math.floor(room / cols)));
+  const side = room - cols * pitch >= SIDE;
+  const cell = Math.round(pitch * 6 / 7);
+  inner.style.setProperty("--hc", `${cell}px`); inner.style.setProperty("--hg", `${pitch - cell}px`);
+  body.classList.toggle("side", side);
+  const sc = inner.parentElement; sc.scrollLeft = sc.scrollWidth;
+}
+let _hz; window.addEventListener("resize", () => { clearTimeout(_hz); _hz = setTimeout(() => { if (currentPage === "runs") heatSize(); }, 120); });
 // the list under the calendar: every run in the months shown, or one day's runs; Reset goes back to all
 async function renderRunList(runs, byDay, from, to, scroll) {
   const box = $("#cal-day");
@@ -355,14 +396,13 @@ async function renderRunList(runs, byDay, from, to, scroll) {
   const title = calSel ? nice(calSel, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : "All production runs";
   const sub = calSel ? `${list.length} run${list.length === 1 ? "" : "s"} logged` : `${list.length} run${list.length === 1 ? "" : "s"} from ${nice(from, { month: "short", day: "numeric" })} to ${nice(to, { month: "short", day: "numeric", year: "numeric" })}`;
   const it = (c) => items.find(i => i.code === c);
-  box.innerHTML = `<div class="sec-head"><div><h2>${title}</h2><p class="lede">${sub}</p></div><div class="acts">${calSel ? `<button type="button" class="btn secondary small" id="day-reset">Reset</button><button type="button" class="btn secondary small admin-only" id="day-add">Add run on this day</button>` : ""}</div></div>`
+  box.innerHTML = `<div class="sec-head"><div><h2>${title}</h2><p class="lede">${sub}</p></div><div class="acts">${calSel ? `<button type="button" class="btn secondary small admin-only" id="day-add">Add run on this day</button>` : ""}</div></div>`
     + (list.length ? `<div class="tbl-wrap runs-wrap"><table class="data compact runs-tbl"><thead><tr>${calSel ? "" : "<th>Date</th>"}<th>Line</th><th>Shift</th><th>Item</th><th class="num">Cases</th><th class="num">Cans / case</th><th class="num">Cans</th><th class="num">Waste %</th><th>Notes</th><th class="admin-only"></th></tr></thead><tbody>`
       + list.map(r => { const w = waste[`${r.line}|${r.run_date}|${r.shift}`]; const i = it(r.item_code);
         return `<tr>${calSel ? "" : `<td class="date">${nice(r.run_date, { weekday: "short", month: "short", day: "numeric" })}</td>`}<td><span class="ln ln-${r.line}">${r.line}</span></td><td class="nw">${r.shift} <small>${["", "07–15", "15–23", "23–07"][r.shift]}</small></td><td><b>${esc(r.item_code || "—")}</b>${i?.brand ? ` <small>${esc(i.brand)}</small>` : ""}</td><td class="num">${fmt(r.cases)}</td><td class="num">${r.cans_per_case}</td><td class="num">${fmt(r.cases * (r.cans_per_case || 12))}</td>
           <td class="num">${w && w.wastePct != null ? `<span class="waste-v">${pct(w.wastePct)}</span>` : `<span class="muted">${w && w.totalLb == null ? "no meter data" : "—"}</span>`}</td><td class="notes">${esc(r.notes || "")}</td><td class="actions admin-only"><button type="button" class="tlink del" data-del="${r.id}">Delete</button></td></tr>`; }).join("")
       + `</tbody></table></div>` : `<p class="note">No runs logged in these months.</p>`);
   box.classList.remove("in"); void box.offsetWidth; box.classList.add("in");
-  $("#day-reset")?.addEventListener("click", () => { calSel = null; $$("#cal .cd.sel").forEach(x => x.classList.remove("sel")); renderRunList(runs, byDay, from, to); });
   $("#day-add")?.addEventListener("click", () => openRunForm(calSel));
   box.querySelector("tbody")?.addEventListener("click", async (e) => {
     const id = e.target.dataset.del; if (!id) return; if (!canEdit() || !confirm("Delete this run?")) return;
@@ -372,19 +412,18 @@ async function renderRunList(runs, byDay, from, to, scroll) {
   });
   if (scroll) box.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "nearest" });
 }
-function calTip(byDay) {
-  const card = $("#cal-card"); let tip = $("#cal-tip"); if (!tip) { tip = document.createElement("div"); tip.id = "cal-tip"; tip.className = "cal-tip"; card.appendChild(tip); }
-  $("#cal").onmouseover = (e) => { const c = e.target.closest(".cd[data-d]"); if (!c) { tip.classList.remove("on"); return; }
-    const d = c.dataset.d, runs = byDay[d] || [], by = {}; runs.forEach(r => (by[r.line] = by[r.line] || new Set()).add(r.shift));
-    const col = { C: getComputedStyle($("#page-runs")).getPropertyValue("--cal-c"), D: getComputedStyle($("#page-runs")).getPropertyValue("--cal-d") };
-    tip.innerHTML = `<b>${new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</b>` + (runs.length ? Object.keys(by).sort().map(L => `<span>${dot(col[L])}${LINE_NAME[L]} · shift ${[...by[L]].sort().join(", ")}</span>`).join("") : `<span class="muted">No run</span>`);
+function gridTip(card, grid, content) {
+  let tip = card.querySelector(".cal-tip"); if (!tip) { tip = document.createElement("div"); tip.className = "cal-tip"; card.appendChild(tip); }
+  grid.onmouseover = (e) => { const c = e.target.closest("[data-d]"); if (!c) { tip.classList.remove("on"); return; }
+    const d = c.dataset.d; tip.innerHTML = `<b>${new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</b>` + content(d);
     const cr = card.getBoundingClientRect(), r = c.getBoundingClientRect();
-    tip.style.left = `${Math.min(cr.width - 190, Math.max(8, r.left - cr.left + r.width / 2 - 85))}px`; tip.style.top = `${r.top - cr.top - 10}px`; tip.classList.add("on"); };
-  $("#cal").onmouseleave = () => tip.classList.remove("on");
+    tip.style.left = `${Math.min(cr.width - 210, Math.max(8, r.left - cr.left + r.width / 2 - 95))}px`; tip.style.top = `${r.top - cr.top - 10}px`; tip.classList.add("on"); };
+  grid.onmouseleave = () => tip.classList.remove("on");
 }
 segBind("#cal-range", (v) => { calN = Number(v); calBack = 0; loadRuns(); });
 $("#cal-prev").addEventListener("click", () => { calBack += calN; loadRuns(); });
 $("#cal-next").addEventListener("click", () => { calBack = Math.max(0, calBack - calN); loadRuns(); });
+$("#cal-reset").addEventListener("click", () => { calSel = null; calN = 3; calBack = 0; segSet("#cal-range", "3"); loadRuns(); });
 function openRunForm(date) { if (!canEdit()) return; const f = $("#run-form"); f.classList.remove("hidden"); if (date) f.elements.run_date.value = date; f.elements.line.focus(); f.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "nearest" }); }
 $("#runs-add").addEventListener("click", () => openRunForm(calSel));
 $("#run-cancel").addEventListener("click", () => { const f = $("#run-form"); f.reset(); f.classList.add("hidden"); });
@@ -577,7 +616,7 @@ function pwRender() {
   const F = pageFilters(), filtered = !!(F.line || F.date || F.q || F.gasser || F.shift);
   const m = pwMatch(), w = m.map(c => Number(c.weight_g)).filter(x => x >= 2.3), days = new Set(m.map(c => c.check_date)).size;
   $("#pw-h").textContent = filtered ? "Paperwork found" : "Latest paperwork";
-  $("#pw-sum").innerHTML = m.length ? `<b>${fmt(m.length)}</b> reading${m.length === 1 ? "" : "s"} on ${days} day${days === 1 ? "" : "s"}${w.length ? ` · mean <b>${fmt(w.reduce((a, b) => a + b, 0) / w.length, 2)} g</b> · ${fmt(Math.min(...w), 1)}–${fmt(Math.max(...w), 1)} g` : ""}` : "No paperwork matches. Try fewer filters.";
+  $("#pw-sum").innerHTML = m.length ? `<b>${fmt(m.length)}</b> reading${m.length === 1 ? "" : "s"} on ${days} day${days === 1 ? "" : "s"}` : "No paperwork matches. Try fewer filters.";
   const shown = m.slice(0, pwLimit);
   $("#pw-table tbody").innerHTML = shown.map(c => { const s = checkShift(c), wt = Number(c.weight_g), low = wt > 0 && wt < 2.3;
     return `<tr class="${low ? "muted" : ""}"><td class="date">${c.check_date}</td><td>${s ? s.shift : "—"}</td><td>${esc(c.check_time || "—")}</td><td><span class="ln ln-${c.line || "C"}">${c.line || "C"}</span></td><td class="num">${c.gasser ?? "—"}</td><td class="num">${c.head ?? "—"}</td><td><b>${esc(c.item_code || "—")}</b></td><td class="num"><b>${c.weight_g == null ? "—" : fmt(wt, 2)}</b>${low ? " <small>under 2.3 g</small>" : ""}</td><td class="num">${c.correction_g == null || c.correction_g === "" ? "—" : fmt(c.correction_g, 2)}</td></tr>`; }).join("")
@@ -669,8 +708,38 @@ function computeShiftRows(lines, from, to) {
   if (!shiftMemo[k]) shiftMemo[k] = computeShiftRowsRaw(lines, from, to).catch((e) => { delete shiftMemo[k]; throw e; });
   return shiftMemo[k];
 }
+// live site: per-shift meter, filler and downtime totals and the paper sums come from small database summaries
+// (shift_meter and paper_shift), so the dashboard no longer downloads every reading; the preview, or any failure, works them out from the raw readings
+// paged reads for the summary function and view; each page is ordered on the row key so pages never overlap or skip
+const KEY_ORDER = ["line", "run_date", "shift"];
+function ordered(q, cols) { cols.forEach(c => { q = q.order(c, { ascending: true }); }); return q; }
+async function rpcAll(fn, args, cols = KEY_ORDER) {
+  const out = [];
+  for (let a = 0; ; a += 1000) { const { data, error } = await ordered(sb.rpc(fn, args), cols).range(a, a + 999); if (error || !Array.isArray(data)) return null; out.push(...data); if (data.length < 1000) return out; }
+}
+async function fetchQuiet(table, cols, orderCols) {
+  const out = [];
+  for (let a = 0; ; a += 1000) { const { data, error } = await ordered(sb.from(table).select(cols), orderCols).range(a, a + 999); if (error || !Array.isArray(data)) return null; out.push(...data); if (data.length < 1000) return out; }
+}
+function fastShiftData(from, to) {
+  const k = `${from}|${to}`;
+  if (!fastCache[k]) fastCache[k] = (async () => {
+    try {
+      const [m, p] = await Promise.all([rpcAll("shift_meter", { p_from: from, p_to: to }), fetchQuiet("paper_shift", "line,date,shift,sum,n", ["line", "date", "shift"])]);
+      if (!m || !p) return null;
+      const meter = {}, paper = {};
+      m.forEach(r => meter[`${r.line}|${r.run_date}|${r.shift}`] = r);
+      p.forEach(r => paper[`${r.line}|${r.date}|${r.shift}`] = { sum: Number(r.sum), n: Number(r.n) });
+      pulledAt = new Date();
+      return { meter, paper };
+    } catch (e) { return null; }
+  })();
+  return fastCache[k];
+}
 async function computeShiftRowsRaw(lines, from, to) {
-  const [allRuns, raw, fillerRaw, downRaw, checksRaw, enactRaw] = await Promise.all(["production_runs", "gas_readings", "filler_readings", "filler_downtime", "gas_weight_checks", "enact_kpi"].map(getTable));
+  const fast = PREVIEW ? null : await fastShiftData(from, to);
+  const [allRuns, enactRaw] = await Promise.all([getTable("production_runs"), getTable("enact_kpi")]);
+  const [raw, fillerRaw, downRaw, checksRaw] = fast ? [[], [], [], []] : await Promise.all(["gas_readings", "filler_readings", "filler_downtime", "gas_weight_checks"].map(getTable));
   const runs = allRuns.filter(r => lines.includes(r.line) && r.run_date >= from && r.run_date <= to).sort((a, b) => a.run_date.localeCompare(b.run_date) || a.shift - b.shift);
   // Enact per-shift means: key line|date|shift -> { g, n, item } (gas-blend items only)
   const enact = {};
@@ -680,9 +749,9 @@ async function computeShiftRowsRaw(lines, from, to) {
     const o = enact[key] = enact[key] || { sum: 0, n: 0, items: new Set() }; o.sum += m * n; o.n += n; o.items.add(k.item);
   });
   const eg = enactGasRows(enactRaw); lastEnact = eg.sort((a, b) => String(b.summary_date).localeCompare(String(a.summary_date)))[0] || null;
-  lastReading = raw.length ? raw.reduce((m, r) => r.ts > m ? r.ts : m, raw[0].ts) : null;
+  if (raw.length) lastReading = raw.reduce((m, r) => r.ts > m ? r.ts : m, raw[0].ts);
   // paperwork: mean measured gas weight per line + date + shift (check_time decides the shift; 00:00-06:59 belongs to previous day's shift 3)
-  const paper = {};
+  const paper = fast ? fast.paper : {};
   checksRaw.forEach(c => {
     const w = Number(c.weight_g); if (!(w >= 2.3)) return;
     const hr = c.check_time ? parseInt(String(c.check_time).split(":")[0], 10) : NaN; if (isNaN(hr)) return;
@@ -700,11 +769,26 @@ async function computeShiftRowsRaw(lines, from, to) {
   runs.forEach(r => { const k = `${r.line}|${r.run_date}|${r.shift}`; (groups[k] = groups[k] || { line: r.line, date: r.run_date, shift: r.shift, runs: [] }).runs.push(r); });
   const out = [];
   Object.values(groups).sort((a, b) => a.date.localeCompare(b.date) || a.shift - b.shift || a.line.localeCompare(b.line)).forEach(g => {
-    const readings = readingsBy[g.line] || [];
-    const [s, e] = shiftWindow(g.date, g.shift);
-    const last = readings.length ? readings[readings.length - 1].t : 0;
-    const eUse = (e > last && e - last <= 15 * 60e3) ? last : e;
-    const a = interp(readings, s), b = interp(readings, eUse);
+    let [s, e] = shiftWindow(g.date, g.shift), eUse, a, b, avgCpm, pctRunning, pctDown, longestStop;
+    if (fast) {   // from the database summary
+      const m = fast.meter[`${g.line}|${g.date}|${g.shift}`];
+      if (m) { s = new Date(m.s).getTime(); e = new Date(m.e).getTime(); }
+      eUse = m ? new Date(m.e_use).getTime() : e;
+      a = m && m.n2o_a != null ? { n2o: Number(m.n2o_a), n2: Number(m.n2_a) } : null; b = m && m.n2o_b != null ? { n2o: Number(m.n2o_b), n2: Number(m.n2_b) } : null;
+      avgCpm = m && m.filler_n ? Number(m.avg_cpm) : null; pctRunning = m && m.filler_n ? Number(m.pct_running) : null;
+      pctDown = m && m.down_n ? Number(m.pct_down) : null; longestStop = m && m.down_n ? Number(m.longest_stop) : null;
+    } else {      // from the raw readings
+      const readings = readingsBy[g.line] || [];
+      const last = readings.length ? readings[readings.length - 1].t : 0;
+      eUse = (e > last && e - last <= 15 * 60e3) ? last : e;
+      a = interp(readings, s); b = interp(readings, eUse);
+      const fill = (fillerBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.cpm);
+      avgCpm = fill.length ? fill.reduce((x, y) => x + y, 0) / fill.length : null;
+      pctRunning = fill.length ? fill.filter(c => c > 20).length / fill.length * 100 : null;
+      const dn = (downBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.m);
+      pctDown = dn.length ? dn.filter(m => m > 5).length / dn.length * 100 : null;
+      longestStop = dn.length ? Math.max(...dn) : null;
+    }
     let cans = 0, bomLb = 0, bomMissing = false, nonGasCans = 0;
     const itemRows = g.runs.map(r => {
       const it = items.find(i => i.code === r.item_code) || {};
@@ -727,14 +811,8 @@ async function computeShiftRowsRaw(lines, from, to) {
     const targetLb = basis === "BOM" ? bomLb : basis ? paperLb : 0;
     const cases = g.runs.filter(r => !itemRows.find(x => x.code === r.item_code)?.nonGas).reduce((x, r) => x + r.cases, 0);
     const hours = (eUse - s) / 3600e3;
-    const fill = (fillerBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.cpm);
-    const avgCpm = fill.length ? fill.reduce((x, y) => x + y, 0) / fill.length : null;
-    const pctRunning = fill.length ? fill.filter(c => c > 20).length / fill.length * 100 : null;
     const capacityCans = FILLER_SETPOINT[g.line] * 60 * hours;               // cans the filler could make at setpoint over the window
     const eff = cans && hours ? cans / capacityCans * 100 : null;              // efficiency = cans produced ÷ setpoint capacity
-    const dn = (downBy[g.line] || []).filter(p => p.t >= s && p.t < e).map(p => p.m);
-    const pctDown = dn.length ? dn.filter(m => m > 5).length / dn.length * 100 : null;
-    const longestStop = dn.length ? Math.max(...dn) : null;
     const row = { line: g.line, date: g.date, shift: g.shift, cases, cans, targetLb, bomLb, paperLb, paperG, paperN, basis, itemRows, nonGasOnly, nonGasCans, hours, avgCpm, pctRunning, eff, capacityCans, pctDown, longestStop,
       items: [...new Set(itemRows.map(i => i.code))].join(" + "), fillerCans: avgCpm != null ? avgCpm * 60 * hours : null,
       notes: g.runs.map(r => r.notes).filter(Boolean).join("; ") };

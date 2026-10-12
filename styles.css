@@ -827,3 +827,73 @@ select.input, .pill-select { -webkit-appearance: none; appearance: none; backgro
 #fresh-pv:empty { display: none; }
 @media (max-width: 1180px) { .fresh-items.mq-view { overflow: hidden; } }
 @media (prefers-reduced-motion: reduce) { .mq-track { animation: none !important; } .fresh-items.mq-view { overflow-x: auto; -webkit-mask-image: none; mask-image: none; } .fresh-set [data-rep], .mq-track > :not(:first-child) { display: none; } }
+
+/* ===================== labelled filter bars =====================
+   Every filter bar labels its fields the same way: a small caps label above each control, controls on one baseline. */
+:root { --cal-c: #031b27; --cal-c-ink: #fff; --cal-d: #8ae5ff; --cal-d-ink: #031b27; }
+.fl { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.fl-k { font-size: .62rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); line-height: 1; white-space: nowrap; }
+.fl.grow { flex: 1 1 240px; max-width: 380px; }
+.fl .pill-search, .fl .drange { width: 100%; }
+.ctl, .ctl-rest, .filters, #page-items .page-head .acts { align-items: flex-end !important; }
+.ctl .linkbtn, .filters .linkbtn, #page-items .acts .linkbtn { min-height: var(--h-field); }
+.fl .switch { min-height: var(--h-field); }
+#dash-ctl #dash-export { border-left: 0; padding-left: .2rem; }
+.filters .note { align-self: flex-end; margin-bottom: .62rem; }
+/* data strip: the label stays put; one item at a time slides out to the left and the next slides in */
+.frot { position: relative; flex: 1 1 auto; min-width: 0; height: 1.25rem; overflow: hidden; }
+.frot .fi { position: absolute; left: 0; top: 50%; display: inline-flex; gap: .45rem; align-items: baseline; white-space: nowrap; opacity: 0; transform: translate(26px, -50%); transition: opacity .45s ease, transform .6s var(--spring); }
+.frot .fi.on { opacity: 1; transform: translate(0, -50%); }
+.frot .fi.out { opacity: 0; transform: translate(-26px, -50%); }
+.fresh .fk { flex: none; }
+/* calendar Reset (always on the card) */
+.cal-reset { min-height: 36px; padding: 0 .4rem; }
+.cal-reset[disabled] { opacity: .35; cursor: default; text-decoration: none; }
+@media (max-width: 700px) {
+  .ctl .fl-seg > .fl-k { display: none; }
+  .ctl.open .ctl-rest .fl.grow, .ctl.open .ctl-rest .fl:has(.drange) { grid-column: 1 / -1; max-width: none; }
+  .filters .fl.grow { grid-column: 1 / -1; max-width: none; }
+  .filters .note { margin: 0; }
+  .exp-bar .fl:has(.drange), .exp-bar .fl-seg { grid-column: 1 / -1; }
+  .fresh .fk { display: none; }
+}
+/* a labelled field stacks label over control; the control keeps its own height (pill rules use flex-basis for width) */
+.fl > :not(.fl-k) { flex: 0 0 auto !important; }
+.fl.grow > .pill-search { max-width: none; }
+/* the Gas weight check bar keeps its earlier one-row layout (no field labels) */
+.pw-ctl, .pw-ctl .ctl-rest { align-items: center !important; }
+.pw-ctl .linkbtn { min-height: 36px; }
+
+/* ===================== Production runs grid (Claude Code layout, site colours) =====================
+   Week columns with month names on top and a rounded square per day, inside the site's own card. Navy = C Line,
+   sky = D Line, split top / bottom when both ran; an empty day is a faint square. Only on Production runs. */
+#page-runs .heat-body { display: flex; flex-direction: column; align-items: flex-start; gap: 1.1rem; }
+#page-runs .heat-body.side { flex-direction: row; align-items: flex-end; justify-content: flex-start; gap: 1rem 3rem; }
+#page-runs .heat-scroll { max-width: 100%; overflow-x: auto; padding: 4px 4px 4px 2px; scrollbar-width: thin; }
+#page-runs .heat-in { --hc: 17px; --hg: 3px; width: max-content; }
+#page-runs .heat-m { display: grid; grid-template-columns: repeat(var(--cols), var(--hc)); column-gap: var(--hg); margin-bottom: .55rem; font-size: .72rem; font-weight: 600; color: var(--ink); line-height: 1; }
+#page-runs .heat-m span { white-space: nowrap; }
+#page-runs .heat-g { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, var(--hc)); grid-auto-columns: var(--hc); gap: var(--hg); }
+#page-runs .hc { display: block; width: var(--hc); height: var(--hc); padding: 0; border: 0; border-radius: calc(var(--hc) * .22); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+#page-runs .hc.void { background: transparent; }
+#page-runs .hc.c { background: var(--cal-c); }
+#page-runs .hc.d { background: var(--cal-d); }
+#page-runs .hc.cd2 { background: linear-gradient(to bottom, var(--cal-c) 0 50%, var(--cal-d) 50% 100%); }
+#page-runs button.hc { cursor: pointer; transition: transform .25s var(--spring), box-shadow .2s ease; }
+#page-runs button.hc:hover { transform: scale(1.15); }
+#page-runs .hc.today { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 3px var(--waste); }
+#page-runs .hc.sel, #page-runs .hc.sel.today { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 3.5px var(--ink); transform: scale(1.1); }
+#page-runs .heat-sum { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .4rem 1.3rem; font-size: .86rem; }
+#page-runs .heat-body.side .heat-sum { flex-direction: column; align-items: flex-start; gap: .35rem; padding-bottom: 2px; flex: none; }
+#page-runs .heat-sum .cs-big { color: var(--ink-2); }
+#page-runs .heat-sum .cs-big b { font-size: 1.5rem; margin-right: .15rem; }
+#page-runs .hk { display: inline-block; width: 11px; height: 11px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 8%, transparent); }
+#page-runs .hk.c { background: var(--cal-c); } #page-runs .hk.d { background: var(--cal-d); } #page-runs .hk.cd2 { background: linear-gradient(to bottom, var(--cal-c) 0 50%, var(--cal-d) 50% 100%); }
+@media (max-width: 700px) {
+  #page-runs .heat-sum { gap: .35rem 1rem; font-size: .82rem; }
+  #page-runs .heat-sum .cs-big { flex-basis: 100%; }
+  /* the switch and arrows fill the row; Reset moves up beside the title */
+  #page-runs .cal-top { position: relative; }
+  #page-runs .cal-title { padding-right: 3.6rem; }
+  #page-runs .cal-reset { position: absolute; top: -.45rem; right: 0; }
+}
