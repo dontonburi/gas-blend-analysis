@@ -897,3 +897,7 @@ select.input, .pill-select { -webkit-appearance: none; appearance: none; backgro
   #page-runs .cal-title { padding-right: 3.6rem; }
   #page-runs .cal-reset { position: absolute; top: -.45rem; right: 0; }
 }
+
+/* runs that came from Enact and still need their cases */
+#page-runs tr.from-enact td { background: color-mix(in srgb, var(--src-enact) 5%, transparent); }
+#page-runs tr.from-enact .src { margin-right: .3rem; }

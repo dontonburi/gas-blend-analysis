@@ -324,7 +324,8 @@ const DAY_MS = 864e5, CAL_C = "#031b27", CAL_D = "#8ae5ff";
 const calDirty = () => !!calSel || calN !== 3 || calBack !== 0;
 async function loadRuns() {
   renderItems();
-  const runs = await getTable("production_runs");
+  const [manual, enactRaw] = await Promise.all([getTable("production_runs"), getTable("enact_kpi")]);
+  const runs = [...manual, ...enactRuns(enactRaw, manual)];
   const byDay = {}; runs.forEach(r => (byDay[r.run_date] = byDay[r.run_date] || []).push(r));
   const today = new Date(); today.setHours(12, 0, 0, 0); const todayS = localDate(today);
   const endM = new Date(today.getFullYear(), today.getMonth() - calBack, 1);
@@ -341,11 +342,11 @@ async function loadRuns() {
   if (calSel && (calSel < from || calSel > to)) calSel = null;
   $("#cal-reset").disabled = !calDirty();
   renderRunList(runs, byDay, from, to);
-  $("#runs-export").onclick = () => csv([...runs].sort((x, y) => y.run_date.localeCompare(x.run_date) || x.line.localeCompare(y.line) || x.shift - y.shift).map(r => ({ line: r.line, run_date: r.run_date, shift: r.shift, item_code: r.item_code, cases: r.cases, cans_per_case: r.cans_per_case, notes: r.notes })), "production_runs.csv");
+  $("#runs-export").onclick = () => csv([...runs].sort((x, y) => y.run_date.localeCompare(x.run_date) || x.line.localeCompare(y.line) || x.shift - y.shift).map(r => ({ line: r.line, run_date: r.run_date, shift: r.shift, item_code: r.item_code, cases: r.cases, cans_per_case: r.cans_per_case, source: r.source === "enact" ? "Enact (cases not entered)" : "entered", notes: r.notes })), "production_runs.csv");
   const cal = $("#cal");
   cal.onclick = (e) => { const b = e.target.closest("button.hc"); if (!b) return; calSel = calSel === b.dataset.d ? null : b.dataset.d; $$("#cal .hc.sel").forEach(x => x.classList.remove("sel")); if (calSel) b.classList.add("sel"); $("#cal-reset").disabled = !calDirty(); renderRunList(runs, byDay, from, to, true); };
-  gridTip($("#cal-card"), cal, (d) => { const rs = byDay[d] || [], by = {}; rs.forEach(r => (by[r.line] = by[r.line] || new Set()).add(r.shift));
-    return rs.length ? Object.keys(by).sort().map(L => `<span>${dot(L === "C" ? CAL_C : CAL_D)}${LINE_NAME[L]} · shift ${[...by[L]].sort().join(", ")}</span>`).join("") : `<span class="muted">No run</span>`; });
+  gridTip($("#cal-card"), cal, (d) => { const rs = byDay[d] || [], by = {}; rs.forEach(r => { const o = by[r.line] = by[r.line] || { sh: new Set(), enact: 0, n: 0 }; o.sh.add(r.shift); o.n++; if (r.source === "enact") o.enact++; });
+    return rs.length ? Object.keys(by).sort().map(L => `<span>${dot(L === "C" ? CAL_C : CAL_D)}${LINE_NAME[L]} · shift ${[...by[L].sh].sort().join(", ")}${by[L].enact ? ` <small class="muted">${by[L].enact === by[L].n ? "from Enact" : "partly from Enact"}</small>` : ""}</span>`).join("") : `<span class="muted">No run</span>`; });
 }
 // Claude Code style grid: one column per week (Monday on top), a rounded square per day in range, month names along
 // the top. Squares are navy for C Line, sky for D Line, split top and bottom when both ran.
@@ -394,17 +395,20 @@ async function renderRunList(runs, byDay, from, to, scroll) {
   const waste = {}; shiftRows.forEach(r => waste[`${r.line}|${r.date}|${r.shift}`] = r);
   const nice = (d, o) => new Date(d + "T12:00:00").toLocaleDateString("en-US", o);
   const title = calSel ? nice(calSel, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : "All production runs";
-  const sub = calSel ? `${list.length} run${list.length === 1 ? "" : "s"} logged` : `${list.length} run${list.length === 1 ? "" : "s"} from ${nice(from, { month: "short", day: "numeric" })} to ${nice(to, { month: "short", day: "numeric", year: "numeric" })}`;
+  const nE = list.filter(r => r.source === "enact").length;
+  const sub = (calSel ? `${list.length} run${list.length === 1 ? "" : "s"} logged` : `${list.length} run${list.length === 1 ? "" : "s"} from ${nice(from, { month: "short", day: "numeric" })} to ${nice(to, { month: "short", day: "numeric", year: "numeric" })}`)
+    + (nE ? ` · ${nE} from Enact still need${nE === 1 ? "s" : ""} cases` : "");
   const it = (c) => items.find(i => i.code === c);
   box.innerHTML = `<div class="sec-head"><div><h2>${title}</h2><p class="lede">${sub}</p></div><div class="acts">${calSel ? `<button type="button" class="btn secondary small admin-only" id="day-add">Add run on this day</button>` : ""}</div></div>`
     + (list.length ? `<div class="tbl-wrap runs-wrap"><table class="data compact runs-tbl"><thead><tr>${calSel ? "" : "<th>Date</th>"}<th>Line</th><th>Shift</th><th>Item</th><th class="num">Cases</th><th class="num">Cans / case</th><th class="num">Cans</th><th class="num">Waste %</th><th>Notes</th><th class="admin-only"></th></tr></thead><tbody>`
-      + list.map(r => { const w = waste[`${r.line}|${r.run_date}|${r.shift}`]; const i = it(r.item_code);
-        return `<tr>${calSel ? "" : `<td class="date">${nice(r.run_date, { weekday: "short", month: "short", day: "numeric" })}</td>`}<td><span class="ln ln-${r.line}">${r.line}</span></td><td class="nw">${r.shift} <small>${["", "07–15", "15–23", "23–07"][r.shift]}</small></td><td><b>${esc(r.item_code || "—")}</b>${i?.brand ? ` <small>${esc(i.brand)}</small>` : ""}</td><td class="num">${fmt(r.cases)}</td><td class="num">${r.cans_per_case}</td><td class="num">${fmt(r.cases * (r.cans_per_case || 12))}</td>
-          <td class="num">${w && w.wastePct != null ? `<span class="waste-v">${pct(w.wastePct)}</span>` : `<span class="muted">${w && w.totalLb == null ? "no meter data" : "—"}</span>`}</td><td class="notes">${esc(r.notes || "")}</td><td class="actions admin-only"><button type="button" class="tlink del" data-del="${r.id}">Delete</button></td></tr>`; }).join("")
+      + list.map((r, ix) => { const w = waste[`${r.line}|${r.run_date}|${r.shift}`]; const i = it(r.item_code), en = r.source === "enact", dash = '<span class="muted">—</span>';
+        return `<tr class="${en ? "from-enact" : ""}">${calSel ? "" : `<td class="date">${nice(r.run_date, { weekday: "short", month: "short", day: "numeric" })}</td>`}<td><span class="ln ln-${r.line}">${r.line}</span></td><td class="nw">${r.shift} <small>${["", "07–15", "15–23", "23–07"][r.shift]}</small></td><td><b>${esc(r.item_code || "—")}</b>${i?.brand ? ` <small>${esc(i.brand)}</small>` : ""}</td><td class="num">${en ? dash : fmt(r.cases)}</td><td class="num">${r.cans_per_case ?? dash}</td><td class="num">${en ? dash : fmt(r.cases * (r.cans_per_case || 12))}</td>
+          <td class="num">${en ? '<span class="muted">needs cases</span>' : w && w.wastePct != null ? `<span class="waste-v">${pct(w.wastePct)}</span>` : `<span class="muted">${w && w.totalLb == null ? "no meter data" : "—"}</span>`}</td><td class="notes">${en ? `<span class="src enact">Enact</span> <small>cases not entered yet</small>` : esc(r.notes || "")}</td><td class="actions admin-only">${en ? `<button type="button" class="tlink" data-fill="${ix}">Enter cases</button>` : `<button type="button" class="tlink del" data-del="${r.id}">Delete</button>`}</td></tr>`; }).join("")
       + `</tbody></table></div>` : `<p class="note">No runs logged in these months.</p>`);
   box.classList.remove("in"); void box.offsetWidth; box.classList.add("in");
   $("#day-add")?.addEventListener("click", () => openRunForm(calSel));
   box.querySelector("tbody")?.addEventListener("click", async (e) => {
+    if (e.target.dataset.fill != null) { const r = list[Number(e.target.dataset.fill)]; return openRunForm(r.run_date, r); }
     const id = e.target.dataset.del; if (!id) return; if (!canEdit() || !confirm("Delete this run?")) return;
     const { error } = await sb.from("production_runs").delete().eq("id", id);
     if (error) return toast(error.message, true);
@@ -424,7 +428,11 @@ segBind("#cal-range", (v) => { calN = Number(v); calBack = 0; loadRuns(); });
 $("#cal-prev").addEventListener("click", () => { calBack += calN; loadRuns(); });
 $("#cal-next").addEventListener("click", () => { calBack = Math.max(0, calBack - calN); loadRuns(); });
 $("#cal-reset").addEventListener("click", () => { calSel = null; calN = 3; calBack = 0; segSet("#cal-range", "3"); loadRuns(); });
-function openRunForm(date) { if (!canEdit()) return; const f = $("#run-form"); f.classList.remove("hidden"); if (date) f.elements.run_date.value = date; f.elements.line.focus(); f.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "nearest" }); }
+function openRunForm(date, pre) {
+  if (!canEdit()) return; const f = $("#run-form"); f.classList.remove("hidden"); if (date) f.elements.run_date.value = date;
+  if (pre) { f.elements.line.value = pre.line; f.elements.shift.value = String(pre.shift); f.elements.item_code.value = pre.item_code || ""; f.elements.cans_per_case.value = pre.cans_per_case || 12; f.elements.cases.value = ""; f.elements.notes.value = ""; }
+  (pre ? f.elements.cases : f.elements.line).focus(); f.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "nearest" });
+}
 $("#runs-add").addEventListener("click", () => openRunForm(calSel));
 $("#run-cancel").addEventListener("click", () => { const f = $("#run-form"); f.reset(); f.classList.add("hidden"); });
 $("#run-form").addEventListener("submit", async (e) => {
@@ -490,22 +498,43 @@ function checkShift(c) { // shift from check time; 00:00-06:59 belongs to the pr
 // Parts: only gas-blend items on the Items list; anything else (e.g. "Regular Cream", non-blend codes) is ignored.
 // Shift summaries arrive just after the shift ends, so shift 3 (ends 07:00) belongs to the previous day;
 // daily summaries are stamped at midnight UTC, so their date is read in UTC.
+// an Enact summary row -> line, shift, run date and gas-blend item (null when it isn't a gas-blend item on a C / D line)
+function enactWhere(k) {
+  const part = String(k.part_name || "").trim(), code = normCode(part.split(/[ -]/)[0]);
+  const it = items.find(i => i.code === code);
+  if (!it || it.gas_blend === false) return null;   // gas-blend items from the Items list only
+  const pn = String(k.process_name || "");
+  const line = /D Line|D-Line|Aerosol D|Gasser D|\bD\b/i.test(pn) ? "D" : /C Line|C-Line|Aerosol C|Gasser C|\bC\b/i.test(pn) ? "C" : null;
+  if (!line) return null;
+  const sh = k.shift_name ? (/3|third|3rd|night/i.test(k.shift_name) ? 3 : /2|second|2nd|even|swing/i.test(k.shift_name) ? 2 : 1) : null;
+  const t = new Date(k.summary_date); let date;
+  if (sh) { if (sh === 3 && t.getHours() < 12) t.setDate(t.getDate() - 1); date = localDate(t); }   // shift 3 belongs to the day it started
+  else date = String(k.summary_date).slice(0, 10);
+  return { line, shift: sh, date, code, it };
+}
 function enactGasRows(enactRows) {
   return (enactRows || []).map(k => {
     const feat = String(k.feature_name || "").trim();
     if (!/^(operating )?gas weight$/i.test(feat)) return null;
-    const part = String(k.part_name || "").trim(), code = normCode(part.split(/[ -]/)[0]);
-    const it = items.find(i => i.code === code);
-    if (!it || it.gas_blend === false) return null;   // gas-blend items from the Items list only
-    const pn = String(k.process_name || "");
-    const line = /D Line|D-Line|Aerosol D|Gasser D|\bD\b/i.test(pn) ? "D" : /C Line|C-Line|Aerosol C|Gasser C|\bC\b/i.test(pn) ? "C" : null;
-    if (!line) return null;
-    const sh = k.shift_name ? (/3|third|3rd|night/i.test(k.shift_name) ? 3 : /2|second|2nd|even|swing/i.test(k.shift_name) ? 2 : 1) : null;
-    const t = new Date(k.summary_date); let date;
-    if (sh) { if (sh === 3 && t.getHours() < 12) t.setDate(t.getDate() - 1); date = localDate(t); }
-    else date = String(k.summary_date).slice(0, 10);
-    return { ...k, line, shift: sh, date, item: it ? code : part, gasser: k.process_leaf || pn };
+    const w = enactWhere(k); if (!w) return null;
+    return { ...k, line: w.line, shift: w.shift, date: w.date, item: w.code, gasser: k.process_leaf || k.process_name };
   }).filter(Boolean);
+}
+// shifts Enact has recorded (any feature) that have no production run entered yet for that line, day, shift and item.
+// They show on Production runs as runs from Enact, without cases, until the real run is entered.
+function enactRuns(enactRows, manual) {
+  const have = new Set(), shiftAll = new Set();
+  manual.forEach(r => { const k = `${r.line}|${r.run_date}|${r.shift}`; if (r.item_code) have.add(`${k}|${normCode(r.item_code)}`); else shiftAll.add(k); });
+  const out = {};
+  (enactRows || []).forEach(k => {
+    if (!k.shift_name || !(Number(k.piece_count) > 0)) return;
+    const w = enactWhere(k); if (!w || !w.shift) return;
+    const sk = `${w.line}|${w.date}|${w.shift}`, key = `${sk}|${w.code}`;
+    if (have.has(key) || shiftAll.has(sk)) return;
+    const o = out[key] = out[key] || { id: null, source: "enact", line: w.line, run_date: w.date, shift: w.shift, item_code: w.code, cases: null, cans_per_case: w.it.cans_per_case ?? null, notes: "", pieces: 0 };
+    o.pieces += Number(k.piece_count) || 0;
+  });
+  return Object.values(out);
 }
 /* >>> gas-weight-compare: paper checks and Enact are the same measurement; shown per shift with the BOM and the waste factor */
 function gasWeightModel(checks, enactRows, shiftRows) {
