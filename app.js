@@ -539,14 +539,19 @@ function enactGasRows(enactRows) {
   }).filter(Boolean);
 }
 // shifts Enact has recorded (any feature) that have no production run entered yet for that line, day, shift and item.
-// They show on Production runs as runs from Enact, without cases, until the real run is entered.
+// They show on Production runs as runs from Enact, without cases, until the real run is entered. Days already covered
+// by a daily production report (runs noted "Daily production report") are complete, so Enact adds nothing up to the
+// last of those days: the report lists every gas-blend run on both lines, and Enact's part names can lag behind.
+const DPR_NOTE = /^daily production report/i;
 function enactRuns(enactRows, manual) {
   const have = new Set(), shiftAll = new Set();
-  manual.forEach(r => { const k = `${r.line}|${r.run_date}|${r.shift}`; if (r.item_code) have.add(`${k}|${normCode(r.item_code)}`); else shiftAll.add(k); });
+  let reportedThrough = "";
+  manual.forEach(r => { const k = `${r.line}|${r.run_date}|${r.shift}`; if (r.item_code) have.add(`${k}|${normCode(r.item_code)}`); else shiftAll.add(k);
+    if (DPR_NOTE.test(r.notes || "") && r.run_date > reportedThrough) reportedThrough = r.run_date; });
   const out = {};
   (enactRows || []).forEach(k => {
     if (!k.shift_name || !(Number(k.piece_count) > 0)) return;
-    const w = enactWhere(k); if (!w || !w.shift) return;
+    const w = enactWhere(k); if (!w || !w.shift || w.date <= reportedThrough) return;
     const sk = `${w.line}|${w.date}|${w.shift}`, key = `${sk}|${w.code}`;
     if (have.has(key) || shiftAll.has(sk)) return;
     const o = out[key] = out[key] || { id: null, source: "enact", line: w.line, run_date: w.date, shift: w.shift, item_code: w.code, cases: null, cans_per_case: w.it.cans_per_case ?? null, notes: "", pieces: 0 };
@@ -678,12 +683,15 @@ $("#pw-clear").addEventListener("click", () => { const f = $("#check-form"); ["c
 $("#check-form").addEventListener("submit", (e) => { e.preventDefault(); pageRender(); });
 
 /* ---------- dashboard ---------- */
+// readings normally come every 10-40 minutes; a longer jump is missing data, not a reading to draw a line through (same rule as interp_tot in Supabase)
+const METER_GAP_MS = 3600e3;
 function interp(readings, t) {
   // readings sorted by ts (ms). Linear interpolation of totalizers at time t. Returns null if outside coverage.
   if (!readings.length || t < readings[0].t || t > readings[readings.length - 1].t) return null;
   let lo = 0, hi = readings.length - 1;
   while (hi - lo > 1) { const m = (lo + hi) >> 1; (readings[m].t <= t ? lo = m : hi = m); }
-  const a = readings[lo], b = readings[hi]; const f = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+  const a = readings[lo], b = readings[hi]; if (b.t - a.t > METER_GAP_MS) return null;   // t falls in a hole in the data
+  const f = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
   return { n2o: a.n2o + f * (b.n2o - a.n2o), n2: a.n2 + f * (b.n2 - a.n2) };
 }
 function shiftWindow(dateStr, shift) {
