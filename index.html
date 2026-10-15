@@ -242,9 +242,10 @@
         <div class="cal-top">
           <h3 class="cal-title" id="cal-title">Days with production</h3>
           <div class="cal-nav">
-            <div class="seg" id="cal-range" role="group" aria-label="Months shown"><button type="button" data-v="3" class="on" aria-pressed="true">3 months</button><button type="button" data-v="6" aria-pressed="false">6 months</button><button type="button" data-v="12" aria-pressed="false">1 year</button></div>
+            <div class="drange" role="group" aria-label="Dates shown"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 7h11M5.5 2v3M10.5 2v3"/></svg><input type="date" id="cal-from" aria-label="From"><span>to</span><input type="date" id="cal-to" aria-label="To"></div>
+            <div class="seg" id="cal-range" role="group" aria-label="Months shown"><button type="button" data-v="3" aria-pressed="false">3 months</button><button type="button" data-v="6" class="on" aria-pressed="true">6 months</button><button type="button" data-v="12" aria-pressed="false">1 year</button></div>
             <div class="cal-step"><button type="button" class="icon-btn" id="cal-prev" aria-label="Earlier months">&#8249;</button><button type="button" class="icon-btn" id="cal-next" aria-label="Later months">&#8250;</button></div>
-            <button type="button" class="linkbtn cal-reset" id="cal-reset" title="Clear the picked day and go back to the latest 3 months">Reset</button>
+            <button type="button" class="linkbtn cal-reset" id="cal-reset" title="Clear the picked day and the dates, back to the latest 6 months">Reset</button>
           </div>
         </div>
         <div class="heat-body" id="cal-body">

@@ -901,3 +901,11 @@ select.input, .pill-select { -webkit-appearance: none; appearance: none; backgro
 /* runs that came from Enact and still need their cases */
 #page-runs tr.from-enact td { background: color-mix(in srgb, var(--src-enact) 5%, transparent); }
 #page-runs tr.from-enact .src { margin-right: .3rem; }
+
+/* Production runs: a typed date range beside the month buttons */
+#page-runs .cal-nav { flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 700px) {
+  #page-runs .cal-nav { justify-content: space-between; gap: .55rem .4rem; }
+  #page-runs .cal-nav .drange { flex: 1 1 100%; justify-content: space-between; }
+  #page-runs .cal-nav .seg button { padding: .4rem .6rem; font-size: .8rem; }
+}

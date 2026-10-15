@@ -319,26 +319,28 @@ $("#items-export").addEventListener("click", () => csv(items.map(i => { const c 
     return { code: i.code, brand: i.brand, ...(g ? {} : { description: i.description, cans_per_case: i.cans_per_case, n2o_lb_per_case: i.n2o_lb_per_case, n2_lb_per_case: i.n2_lb_per_case }), n2o_g_per_can: c.n2oG, n2_g_per_can: c.n2G, total_g_per_can: c.totG, n2o_ratio_vol: i.n2o_ratio_vol, bom_split_mass: c.massR, target_gas_g: i.target_gas_g, notes: i.notes }; }), "items.csv"));
 
 /* ---------- production runs: a grid of days (Claude Code style), and every run in them ---------- */
-let calSel = null, calN = 3, calBack = 0;   // selected day, months shown, months paged back (squares: C navy, D sky)
+let calSel = null, calN = 6, calBack = 0, calFrom = null, calTo = null;   // selected day, months shown, months paged back, or a typed date range
 const DAY_MS = 864e5, CAL_C = "#031b27", CAL_D = "#8ae5ff";
-const calDirty = () => !!calSel || calN !== 3 || calBack !== 0;
+const calDirty = () => !!calSel || calN !== 6 || calBack !== 0 || !!(calFrom || calTo);
+const atNoon = (s) => new Date(s + "T12:00:00");
 async function loadRuns() {
   renderItems();
   const [manual, enactRaw] = await Promise.all([getTable("production_runs"), getTable("enact_kpi")]);
   const runs = [...manual, ...enactRuns(enactRaw, manual)];
   const byDay = {}; runs.forEach(r => (byDay[r.run_date] = byDay[r.run_date] || []).push(r));
   const today = new Date(); today.setHours(12, 0, 0, 0); const todayS = localDate(today);
-  const endM = new Date(today.getFullYear(), today.getMonth() - calBack, 1);
-  const start = new Date(endM.getFullYear(), endM.getMonth() - (calN - 1), 1, 12), monthEnd = new Date(endM.getFullYear(), endM.getMonth() + 1, 0, 12);
-  const end = monthEnd > today ? today : monthEnd;
-  const from = localDate(start), to = localDate(monthEnd);
+  // the days shown: a typed date range, or whole months back from this month (paged with the arrows)
+  let start, rangeEnd;
+  if (calFrom || calTo) { rangeEnd = calTo ? atNoon(calTo) : today; start = calFrom ? atNoon(calFrom) : new Date(rangeEnd.getFullYear(), rangeEnd.getMonth() - 5, 1, 12); }
+  else { const endM = new Date(today.getFullYear(), today.getMonth() - calBack, 1); start = new Date(endM.getFullYear(), endM.getMonth() - (calN - 1), 1, 12); rangeEnd = new Date(endM.getFullYear(), endM.getMonth() + 1, 0, 12); }
+  const end = rangeEnd > today ? today : rangeEnd;
+  const from = localDate(start), to = localDate(rangeEnd);
+  $("#cal-from").value = from; $("#cal-to").value = localDate(end);
   const linesOn = (d) => [...new Set((byDay[d] || []).map(r => r.line))].sort().join("");
   const g = heatGrid({ start, end, todayS, linesOn, isSel: (ds) => ds === calSel });
-  const span = `${start.toLocaleDateString("en-US", { month: "short", year: start.getFullYear() !== endM.getFullYear() ? "numeric" : undefined })} – ${endM.toLocaleDateString("en-US", { month: "short", year: "numeric" })}`;
-  $("#cal-title").textContent = `Days with production, ${span}`;
   $("#cal-sum").innerHTML = `<span class="cs-big"><b>${g.nDays}</b> days with runs</span><span><i class="hk c"></i>C Line <b>${g.nC}</b></span><span><i class="hk d"></i>D Line <b>${g.nD}</b></span><span><i class="hk cd2"></i>Both lines <b>${g.nB}</b></span><span class="muted"><i class="hk"></i>No run</span>`;
   heatSize();
-  $("#cal-next").disabled = calBack === 0;
+  $("#cal-next").disabled = calFrom || calTo ? localDate(end) >= todayS : calBack === 0;
   if (calSel && (calSel < from || calSel > to)) calSel = null;
   $("#cal-reset").disabled = !calDirty();
   renderRunList(runs, byDay, from, to);
@@ -368,7 +370,7 @@ function heatGrid({ start, end, todayS, linesOn, isSel }) {
   el.innerHTML = cells.join("");
   // month names over the week column each month starts in; a name too close to the next one is dropped
   const marks = []; for (let m = new Date(start.getFullYear(), start.getMonth(), 1, 12); m <= end; m = new Date(m.getFullYear(), m.getMonth() + 1, 1, 12)) { const f = m < start ? start : m; marks.push({ c: Math.floor(Math.round((f - s0) / DAY_MS) / 7), t: m.toLocaleDateString("en-US", { month: "short" }) + (m.getMonth() === 0 ? ` ${m.getFullYear()}` : "") }); }
-  const keep = marks.filter((m, i) => !marks[i + 1] || marks[i + 1].c - m.c >= 3 || i === marks.length - 1);
+  const keep = marks.filter((m, i) => !marks[i + 1] || marks[i + 1].c - m.c >= (m.t.length > 3 ? 3 : 2));   // a short name needs two week columns, "Jan 2026" three
   monthsEl.innerHTML = keep.map(m => `<span style="grid-column:${m.c + 1}">${m.t}</span>`).join("");
   inner.style.setProperty("--cols", cols);
   return { nDays, nC, nD, nB };
@@ -424,10 +426,26 @@ function gridTip(card, grid, content) {
     tip.style.left = `${Math.min(cr.width - 210, Math.max(8, r.left - cr.left + r.width / 2 - 95))}px`; tip.style.top = `${r.top - cr.top - 10}px`; tip.classList.add("on"); };
   grid.onmouseleave = () => tip.classList.remove("on");
 }
-segBind("#cal-range", (v) => { calN = Number(v); calBack = 0; loadRuns(); });
-$("#cal-prev").addEventListener("click", () => { calBack += calN; loadRuns(); });
-$("#cal-next").addEventListener("click", () => { calBack = Math.max(0, calBack - calN); loadRuns(); });
-$("#cal-reset").addEventListener("click", () => { calSel = null; calN = 3; calBack = 0; segSet("#cal-range", "3"); loadRuns(); });
+segBind("#cal-range", (v) => { calN = Number(v); calBack = 0; calFrom = calTo = null; loadRuns(); });
+// typing dates switches to that range (the month buttons let go); clearing both goes back to the months view
+function calDates() {
+  let f = $("#cal-from").value, t = $("#cal-to").value;
+  if (!f && !t) { calFrom = calTo = null; segSet("#cal-range", String(calN)); }
+  else { if (f && t && f > t) [f, t] = [t, f]; calFrom = f || null; calTo = t || null; calBack = 0; segSet("#cal-range", ""); }
+  loadRuns();
+}
+$("#cal-from").addEventListener("change", calDates); $("#cal-to").addEventListener("change", calDates);
+// the arrows page by the length of what's shown: whole months, or the typed range's number of days
+function calStep(dir) {
+  if (!(calFrom || calTo)) { calBack = Math.max(0, calBack - dir * calN); return loadRuns(); }
+  const f = atNoon($("#cal-from").value), t = atNoon($("#cal-to").value), days = Math.round((t - f) / DAY_MS) + 1, today = atNoon(localDate(new Date()));
+  let nf = new Date(f.getFullYear(), f.getMonth(), f.getDate() + dir * days, 12), nt = new Date(t.getFullYear(), t.getMonth(), t.getDate() + dir * days, 12);
+  if (nt > today) { nt = today; nf = new Date(today.getFullYear(), today.getMonth(), today.getDate() - days + 1, 12); }
+  calFrom = localDate(nf); calTo = localDate(nt); loadRuns();
+}
+$("#cal-prev").addEventListener("click", () => calStep(-1));
+$("#cal-next").addEventListener("click", () => calStep(1));
+$("#cal-reset").addEventListener("click", () => { calSel = null; calN = 6; calBack = 0; calFrom = calTo = null; segSet("#cal-range", "6"); loadRuns(); });
 function openRunForm(date, pre) {
   if (!canEdit()) return; const f = $("#run-form"); f.classList.remove("hidden"); if (date) f.elements.run_date.value = date;
   if (pre) { f.elements.line.value = pre.line; f.elements.shift.value = String(pre.shift); f.elements.item_code.value = pre.item_code || ""; f.elements.cans_per_case.value = pre.cans_per_case || 12; f.elements.cases.value = ""; f.elements.notes.value = ""; }
@@ -445,7 +463,7 @@ $("#run-form").addEventListener("submit", async (e) => {
 });
 // dashboard shortcuts
 let pwJump = false;
-$$(".hero-actions a[data-go]").forEach(a => a.addEventListener("click", () => { if (a.dataset.go === "runs") { calSel = null; calBack = 0; } else { pwSetMode("find"); pwJump = true; } }));
+$$(".hero-actions a[data-go]").forEach(a => a.addEventListener("click", () => { if (a.dataset.go === "runs") { calSel = null; calBack = 0; calFrom = calTo = null; segSet("#cal-range", String(calN)); } else { pwSetMode("find"); pwJump = true; } }));
 
 /* ---------- meter readings: view and export by line and date range (imports removed) ---------- */
 function shiftOf(d) { // returns {date:'YYYY-MM-DD', shift}
