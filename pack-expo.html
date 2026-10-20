@@ -107,7 +107,14 @@ var DAYS=[
 ['11:00','Revisits','Anything flagged earlier','','',''],
 ['12:00',L],
 ['1:00','Quotes and follow-ups','Collect contacts, samples, quotes','','','']]},
-{k:'ev',n:'Events',d:'Mon-Wed',ev:1}];
+{k:'ev',n:'Events',d:'Mon-Wed',ev:1},
+{k:'pw',n:'Powder',d:'Glitter dosing',pw:1}];
+var PW=[
+['VTOPS','LU-8930, Lakeside Upper','Auger filling systems, powder conveying, ribbon blending, induction sealing. Invites visitors to bring powder or granule samples for live tests.','Listed for the show','Glitter is not mentioned. Ask them to test your glitter or sprinkle sample.'],
+['All-Fill','South Hall, left side near S-1700','Auger and dry-product fillers.','Seen on your map','Booth number not readable in the screenshot. Confirm in the app.'],
+['Spee-Dee Packaging Machinery','Booth not checked','Auger and dual-auger fillers for powders and granules.','Not checked','Not confirmed as an exhibitor this year. Search the app.'],
+['Tecno Fluss (Seven Fluss), Italy','Booth not checked','Dosing machines and filling lines for liquid, semi-liquid, dense and doughy products.','Not checked','Listing does not mention powders or glitter. Probably a gel carrier option only.'],
+['Elcan Industries','Not an exhibitor check','Glitter maker. Useful for particle size and flow advice, not a dosing machine.','Supplier','Ask which doser type suits their glitter grades.']];
 var EV=[
 ['Mon','Discovery Tour: Food Processing Equipment (Upper Lakeside)','3:00-4:30 pm','$49, approval','Replaces the injection-molding search'],
 ['Mon','Discovery Tour: Labels, Labeling and Printing (South)','1:00-2:30 pm','$49, approval','Overlaps 1:00 plan'],
@@ -130,6 +137,8 @@ function tabs(){var t=document.getElementById('tabs');t.innerHTML=DAYS.map(funct
   return '<button role="tab" aria-selected="'+(d.k===cur)+'" data-k="'+d.k+'">'+d.n+'<small>'+d.d+'</small></button>'}).join('');
   t.onclick=function(e){var b=e.target.closest('button');if(!b)return;cur=b.dataset.k;try{localStorage.setItem('packexpo26-tab',cur)}catch(x){}tabs();render()}}
 function render(){var d=DAYS.filter(function(x){return x.k===cur})[0],v=document.getElementById('view'),h='';
+  if(d.pw){h='<div class="meta">Powder and glitter dosing. I found no source that ranks leaders in glitter dosing, so nothing here is a ranking.</div><ul>'+PW.map(function(e){
+    return '<li><div class="ev"><span class="tm">'+esc(e[1])+'</span><span class="co">'+esc(e[0])+'</span><span class="tag">'+esc(e[3])+'</span><span class="pu" style="grid-column:1/-1">'+esc(e[2])+'</span><span class="warn">'+esc(e[4])+'</span></div></li>'}).join('')+'</ul><div class="note"><b>Search the app for:</b> glitter, powder, auger, dry fill, sprinkles, vibratory feeder.</div>';v.innerHTML=h;return}
   if(d.ev){h='<div class="meta">Registration for tours is on the PACK EXPO site and needs approval. Nothing here is booked.</div><ul>'+EV.map(function(e){
     return '<li><div class="ev"><span class="tm">'+esc(e[0])+' &middot; '+esc(e[2])+'</span><span class="co">'+esc(e[1])+'</span><span class="tag'+(e[3].indexOf('$')===0?' paid':'')+'">'+esc(e[3])+'</span>'+(e[4]?'<span class="warn">'+esc(e[4])+'</span>':'')+'</div></li>'}).join('')+'</ul>';
     h+='<div class="note">IoPP: no 2026 IoPP session found. Ask at the show or check iopp.org.</div>';v.innerHTML=h;return}
