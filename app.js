@@ -539,19 +539,31 @@ function enactGasRows(enactRows) {
   }).filter(Boolean);
 }
 // shifts Enact has recorded (any feature) that have no production run entered yet for that line, day, shift and item.
-// They show on Production runs as runs from Enact, without cases, until the real run is entered. Days already covered
-// by a daily production report (runs noted "Daily production report") are complete, so Enact adds nothing up to the
-// last of those days: the report lists every gas-blend run on both lines, and Enact's part names can lag behind.
-const DPR_NOTE = /^daily production report/i;
+// They show on Production runs as runs from Enact, without cases, until the real run is entered. Days a daily
+// production report covers are complete (the report lists every gas-blend run on both lines, and Enact's part names can
+// lag behind), so Enact adds nothing on those days. A report's days come from its runs' notes:
+// "Daily production report, week ending Oct 25" covers Mon-Sun of that week; "... (through Wed Oct 14)" stops early.
+const DPR_NOTE = /^daily production report, week ending ([a-z]{3}) (\d{1,2})(?:.*?\(through (?:[a-z]{3} )?([a-z]{3}) (\d{1,2})\))?/i;
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+function reportDays(manual) {
+  const days = new Set(), seen = new Set();
+  manual.forEach(r => {
+    const m = DPR_NOTE.exec(r.notes || ""); if (!m) return;
+    const key = `${m[0]}|${r.run_date.slice(0, 4)}`; if (seen.has(key)) return; seen.add(key);
+    const run = atNoon(r.run_date), near = (mon, day) => {   // the year that puts the date within a week of the run
+      const y = run.getFullYear(); return [y - 1, y, y + 1].map(yy => new Date(yy, MONTHS.indexOf(mon.toLowerCase()), Number(day), 12)).sort((p, q) => Math.abs(p - run) - Math.abs(q - run))[0]; };
+    const end = near(m[1], m[2]), stop = m[3] ? near(m[3], m[4]) : end;
+    for (let d = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 6, 12); d <= stop; d.setDate(d.getDate() + 1)) days.add(localDate(d));
+  });
+  return days;
+}
 function enactRuns(enactRows, manual) {
-  const have = new Set(), shiftAll = new Set();
-  let reportedThrough = "";
-  manual.forEach(r => { const k = `${r.line}|${r.run_date}|${r.shift}`; if (r.item_code) have.add(`${k}|${normCode(r.item_code)}`); else shiftAll.add(k);
-    if (DPR_NOTE.test(r.notes || "") && r.run_date > reportedThrough) reportedThrough = r.run_date; });
+  const have = new Set(), shiftAll = new Set(), reported = reportDays(manual);
+  manual.forEach(r => { const k = `${r.line}|${r.run_date}|${r.shift}`; if (r.item_code) have.add(`${k}|${normCode(r.item_code)}`); else shiftAll.add(k); });
   const out = {};
   (enactRows || []).forEach(k => {
     if (!k.shift_name || !(Number(k.piece_count) > 0)) return;
-    const w = enactWhere(k); if (!w || !w.shift || w.date <= reportedThrough) return;
+    const w = enactWhere(k); if (!w || !w.shift || reported.has(w.date)) return;
     const sk = `${w.line}|${w.date}|${w.shift}`, key = `${sk}|${w.code}`;
     if (have.has(key) || shiftAll.has(sk)) return;
     const o = out[key] = out[key] || { id: null, source: "enact", line: w.line, run_date: w.date, shift: w.shift, item_code: w.code, cases: null, cans_per_case: w.it.cans_per_case ?? null, notes: "", pieces: 0 };
