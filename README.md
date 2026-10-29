@@ -8,6 +8,7 @@ A small website for recording production runs, meter readings, and gas weight ch
 |---|---|
 | `index.html`, `styles.css`, `app.js` | The website. No build step. |
 | `config.example.js` | Template for your Supabase keys. Copy to `config.js`. |
+| `supplier-quality.html`, `component-scorecard.html` | Supplier Quality Scorecard and its customer-complaint detail. Encrypted: they open only for the admin account (the main password). The key sits in Supabase table `page_keys`, readable by the admin role only, so the repository holds ciphertext, not the data. |
 | `supabase/schema.sql` | Creates the tables and locks them to signed-in users. Run once. |
 | `supabase/seed.sql` | Loads the 27 blended-gas items, 9/1–9/2/2026 production, 3,800 meter readings and 484 gas-weight-check rows. Run once, after schema. |
 
