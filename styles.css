@@ -909,3 +909,18 @@ select.input, .pill-select { -webkit-appearance: none; appearance: none; backgro
   #page-runs .cal-nav .drange { flex: 1 1 100%; justify-content: space-between; }
   #page-runs .cal-nav .seg button { padding: .4rem .6rem; font-size: .8rem; }
 }
+
+/* ---------- the AMA can, bottom left (ama-site.js, ama/ama-can.js) ---------- */
+/* keep the footer's text clear of the can, which stands 14–76px from the left edge */
+body.has-ama .site-foot .wrap { padding-left: max(2.5rem, calc(104px - max(0px, (100vw - 1240px) / 2))); }
+@media (max-width: 700px) { body.has-ama .site-foot .wrap { padding-left: 76px; } }
+/* phones: the Analysis section menu opens over the corner, so the can steps out while it's open */
+body:has(#an-index.open) .ama:not(.open) { opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility 0s .2s; }
+/* where a search result lands: a brief highlight */
+.ama-hit { animation: amaHit 2.4s ease-out both; border-radius: 10px; }
+@keyframes amaHit { 0%, 30% { background-color: color-mix(in srgb, var(--lime) 75%, transparent); box-shadow: 0 0 0 8px color-mix(in srgb, var(--lime) 75%, transparent); } 100% { background-color: transparent; box-shadow: 0 0 0 8px transparent; } }
+tr.ama-hit { animation: none; }
+tr.ama-hit > td { animation: amaHitTd 2.4s ease-out both; }
+@keyframes amaHitTd { 0%, 30% { background-color: color-mix(in srgb, var(--lime) 75%, transparent); } 100% { background-color: transparent; } }
+.ama-hit:focus { outline: none; }
+@media (prefers-reduced-motion: reduce) { .ama-hit, tr.ama-hit > td { animation: none; } }

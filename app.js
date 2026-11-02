@@ -122,12 +122,13 @@ let _rz; window.addEventListener("resize", () => { clearTimeout(_rz); _rz = setT
 
 /* ---------- sign in (Supabase Auth) ---------- */
 let currentRole = null;
-function showSignin() { $("#signin").classList.remove("hidden"); $("#app").classList.add("hidden"); }
+function showSignin() { $("#signin").classList.remove("hidden"); $("#app").classList.add("hidden"); window.amaSite && amaSite.unmount(); }
 async function showApp() {
   $("#signin").classList.add("hidden"); $("#app").classList.remove("hidden");
   await loadItems();
   renderFresh();
   navigate(location.hash.replace("#", "") || "dashboard");
+  window.amaSite && amaSite.mount();   // the AMA can, bottom left (ama-site.js)
 }
 // freshness strip above the header: when each source last had data, and when this page pulled it
 const fmtDay = (v) => { if (!v) return "—"; const x = v instanceof Date ? v : new Date(String(v).length === 10 ? v + "T12:00:00" : v); return `${x.toLocaleDateString("en-US", { month: "short" })}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()}`; };
@@ -228,6 +229,7 @@ $("#signout").addEventListener("click", () => { if (PREVIEW) return toast("Sign-
 /* ---------- navigation ---------- */
 const loaders = { analysis: loadAnalysis, dashboard: loadDashboard, runs: loadRuns, readings: loadReadings, checks: loadChecks, items: renderItems, convert: renderConvert };
 function navigate(page) {
+  page = String(page || "").split("~")[0];   // "#items~item:AD54" is a deep link the AMA can opens (ama-site.js)
   if (!loaders[page]) page = "dashboard";
   if (!$("#app") || $("#app").classList.contains("hidden")) return;
   if (role() === "guest" && ADMIN_PAGES.includes(page)) page = "dashboard";
@@ -240,9 +242,9 @@ function navigate(page) {
   currentPage = page; window.scrollTo({ top: 0 });
   setTimeout(resizeCharts, 30);
   heroSync();
-  loaders[page]();
+  return (lastNav = Promise.resolve(loaders[page]()));
 }
-let currentPage = null;
+let currentPage = null, lastNav = null;
 const PAGE_IDS = Object.keys(loaders);
 let heroRaf = 0;
 function heroSync() {

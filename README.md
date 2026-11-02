@@ -8,6 +8,7 @@ A small website for recording production runs, meter readings, and gas weight ch
 |---|---|
 | `index.html`, `styles.css`, `app.js` | The website. No build step. |
 | `config.example.js` | Template for your Supabase keys. Copy to `config.js`. |
+| `ama-site.js`, `ama/` | The AMA can: Don's aerosol "ask me anything" character at the bottom left once someone is signed in. It searches this site (pages, sections, How we calculate, a glossary, items, gas events) and jumps in place. `ama/ama-can.js` and `ama/ama-can-3d.js` are the aerosol-only build of the AMA characters (Oct 15, 2026); `ama-site.js` builds the search index in the browser from what the signed-in person can already see, so guests never get admin-only pages or item details. The first-visit 3D intro loads three.js r128 from cdnjs. |
 | `supplier-quality.html`, `component-scorecard.html`, `logs.html` | Supplier Quality Scorecard, its customer-complaint detail and the Quality Log Explorer (every row of the complaint, defective, hold and rework logs; search, filters, CSV). Encrypted: they open only for the admin account (the main password). The key sits in Supabase table `page_keys`, readable by the admin role only, so the repository holds ciphertext, not the data. Rebuilt daily by a scheduled task. |
 | `tools/` | The encrypted build pipeline for those pages (`pipeline.bin`) and the script that packs and unpacks it. |
 | `supabase/schema.sql` | Creates the tables and locks them to signed-in users. Run once. |
